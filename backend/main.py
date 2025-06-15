@@ -10,14 +10,20 @@ app = FastAPI()
 def load_index():
     global index
     data_dir = os.environ.get("DATA_DIRECTORY", "./data")
-    documents = SimpleDirectoryReader(data_dir).load_data()
-    index = VectorStoreIndex.from_documents(documents)
+    if os.path.exists(data_dir) and os.path.isdir(data_dir):
+        documents = SimpleDirectoryReader(data_dir).load_data()
+        index = VectorStoreIndex.from_documents(documents)
+    else:
+        index = None
+        print(f"Warning: Data directory '{data_dir}' does not exist. Index not loaded.")
 
 class QueryRequest(BaseModel):
     question: str
 
 @app.post("/query")
 def query(request: QueryRequest):
+    if index is None:
+        return {"error": "Index not loaded. No data directory found."}
     query_engine = index.as_query_engine()
     result = query_engine.query(request.question)
     return {"answer": str(result)}
