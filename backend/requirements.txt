@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 llama-index==0.12.42
-pinecone-client
+pinecone
 pydantic
