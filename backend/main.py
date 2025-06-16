@@ -6,6 +6,7 @@ import os
 # Pinecone imports
 import pinecone
 from llama_index.vector_stores.pinecone import PineconeVectorStore
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
@@ -46,3 +47,29 @@ def query(request: QueryRequest):
     query_engine = index.as_query_engine()
     result = query_engine.query(request.question)
     return {"answer": str(result)}
+
+@app.get("/admin/status")
+def admin_status():
+    status = {}
+    # Check Pinecone API key and environment
+    status["pinecone_api_key_set"] = bool(PINECONE_API_KEY)
+    status["pinecone_environment_set"] = bool(PINECONE_ENVIRONMENT)
+    # Check Pinecone index
+    try:
+        pinecone_indexes = pinecone.list_indexes()
+        status["pinecone_index_exists"] = INDEX_NAME in pinecone_indexes
+    except Exception as e:
+        status["pinecone_index_exists"] = False
+        status["pinecone_error"] = str(e)
+    # Check in-memory index
+    status["index_loaded"] = 'index' in globals() and index is not None
+    # Optionally, check if index has documents (if possible)
+    try:
+        if status["index_loaded"]:
+            # This is a best-effort check; adjust as needed for your index type
+            status["index_document_count"] = getattr(index, 'docstore', None) and len(getattr(index.docstore, 'docs', {}))
+        else:
+            status["index_document_count"] = 0
+    except Exception as e:
+        status["index_document_count"] = f"Error: {e}"
+    return JSONResponse(content=status)
