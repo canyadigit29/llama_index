@@ -141,12 +141,35 @@ def load_index():
                 index = None  # Set to None to indicate initialization failure
         except Exception as e:
             print(f"Failed to initialize Pinecone: {e}")
-        
-        # Initialize Supabase client with error handling        if SUPABASE_URL and SUPABASE_KEY:
+          # Initialize Supabase client with error handling
+        if SUPABASE_URL and SUPABASE_KEY:
             try:
                 # Initialize Supabase client with only the required parameters
                 # to avoid issues with unexpected keyword arguments like 'proxy'
-                supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                try:
+                    # First attempt: Basic initialization with just URL and key
+                    supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                except TypeError as type_error:
+                    if "got an unexpected keyword argument" in str(type_error):
+                        print(f"Adjusting Supabase client initialization due to: {type_error}")
+                        # Different versions of the library may expect different parameters
+                        # Try to import the specific version and adjust accordingly
+                        import sys
+                        print(f"Supabase library version: {sys.modules.get('supabase', None)}")
+                        
+                        # Handle potential version differences
+                        import inspect
+                        client_params = inspect.signature(create_client).parameters
+                        if len(client_params) == 2:  # Just URL and key
+                            supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                        else:
+                            # Fallback to basic minimum parameters
+                            supabase_client = create_client(
+                                supabase_url=SUPABASE_URL,
+                                supabase_key=SUPABASE_KEY
+                            )
+                    else:
+                        raise
                 print("Supabase client initialized successfully")
                 
                 # Check if llama_index_documents table exists, create if needed
