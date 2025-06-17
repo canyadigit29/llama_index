@@ -5,7 +5,8 @@ watchPatterns = ["backend/**"]
 
 [deploy]
 startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
-healthcheckPath = "/"
+# Use a simple health check path that doesn't require external services
+healthcheckPath = "/health"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
 

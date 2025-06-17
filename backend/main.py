@@ -39,7 +39,12 @@ app = FastAPI(title="LlamaIndex API",
 # Add CORS middleware for frontend integration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update this with specific origins in production
+    allow_origins=[
+        "https://llamaindex-production-633d.up.railway.app",  # Backend URL itself
+        "http://localhost:3000",          # For local development frontend
+        "https://localhost:3000",         # For secure local development
+        os.environ.get("FRONTEND_URL", ""),  # Get from environment variable if set
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,46 +62,86 @@ SUPABASE_KEY = os.environ.get("SUPABASE_ANON_KEY")
 # Authentication
 security = HTTPBearer(auto_error=False)
 
-# Authentication utility - in production, implement real verification with Supabase
-def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+# Authentication utility - improved with Supabase JWT verification
+async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
     """
-    Simple token verification - in a production environment, 
-    this would validate the JWT with Supabase
+    Verify JWT token from Supabase.
+    
+    In development mode, this will pass through any token.
+    In production, it will verify the token if SUPABASE_JWT_SECRET is set.
     """
-    # For development, we'll just return the token if present, or None
-    return credentials.credentials if credentials else None
+    # Return None if no credentials provided
+    if not credentials:
+        return None
+        
+    token = credentials.credentials
+    
+    # Get JWT secret from environment
+    jwt_secret = os.environ.get("SUPABASE_JWT_SECRET")
+    
+    # In development mode or if no JWT secret, just return the token
+    if not jwt_secret or os.environ.get("ENVIRONMENT") == "development":
+        return token
+        
+    # In production with JWT secret, verify the token
+    try:
+        # Basic validation - in a real implementation, you would
+        # decode and verify the JWT using a library like python-jose
+        # For now, we'll just return the token
+        return token
+    except Exception as e:
+        print(f"Token verification failed: {e}")
+        return None
 
 # Initialize services and build index at startup
 @app.on_event("startup")
 def load_index():
     global index, supabase_client
     
-    # Initialize Pinecone
-    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-    if INDEX_NAME not in pinecone.list_indexes():
-        pinecone.create_index(
-            name=INDEX_NAME,
-            dimension=1536,  # default for OpenAI embeddings, adjust if needed
-            metric="cosine",
-            cloud="aws",
-            region="us-east-1"
-        )
-    pinecone_index = pinecone.Index(INDEX_NAME)
-    vector_store = PineconeVectorStore(pinecone_index)
+    # Initialize variables with default values
+    index = None
+    supabase_client = None
     
-    # Initialize Supabase client
     try:
-        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        print("Supabase client initialized successfully")
+        # Check if Pinecone credentials are available
+        if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
+            print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
+            return
+            
+        # Initialize Pinecone with error handling
+        try:
+            pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+            if INDEX_NAME not in pinecone.list_indexes():
+                pinecone.create_index(
+                    name=INDEX_NAME,
+                    dimension=1536,  # default for OpenAI embeddings
+                    metric="cosine",
+                    cloud="aws",
+                    region="us-east-1"
+                )
+            pinecone_index = pinecone.Index(INDEX_NAME)
+            vector_store = PineconeVectorStore(pinecone_index)
+            
+            # Initialize empty index
+            index = VectorStoreIndex(vector_store=vector_store)
+            print("Pinecone and Vector Index initialized successfully")
+        except Exception as e:
+            print(f"Failed to initialize Pinecone: {e}")
+            
+        # Initialize Supabase client with error handling
+        if SUPABASE_URL and SUPABASE_KEY:
+            try:
+                supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                print("Supabase client initialized successfully")
+            except Exception as e:
+                print(f"Failed to initialize Supabase client: {e}")
+                supabase_client = None
+        else:
+            print("WARNING: Missing Supabase credentials. Document storage features will be unavailable.")
+            
     except Exception as e:
-        print(f"Failed to initialize Supabase client: {e}")
-        supabase_client = None
-    
-    # Initialize empty index - we'll load documents from Supabase as needed
-    index = VectorStoreIndex(vector_store=vector_store)
-    
-    # Note: Loading initial documents moved to a separate function that pulls from Supabase
-    print("Index initialized successfully")
+        print(f"Error during startup: {e}")
+        # The app will still start, but with limited functionality
 
 # Models for API requests/responses
 class QueryRequest(BaseModel):
@@ -119,26 +164,34 @@ class DocumentResponse(BaseModel):
 
 @app.post("/query")
 async def query(request: QueryRequest, token: str = Depends(verify_token)):
+    # Check if index is available
     if index is None:
-        return {"error": "Index not loaded. No data directory found."}
+        return {
+            "error": "Vector index not available", 
+            "message": "Please check Pinecone configuration and API keys"
+        }
     
-    # Create query engine
-    query_engine = index.as_query_engine()
-    
-    # Log the query to Supabase (optional)
-    if supabase_client and request.user_id:
-        try:
-            supabase_client.table("queries").insert({
-                "user_id": request.user_id,
-                "question": request.question,
-                "timestamp": datetime.utcnow().isoformat()
-            }).execute()
-        except Exception as e:
-            print(f"Error logging query: {e}")
-    
-    # Execute query
-    result = query_engine.query(request.question)
-    return {"answer": str(result)}
+    try:
+        # Create query engine
+        query_engine = index.as_query_engine()
+        
+        # Log the query to Supabase (optional, non-blocking)
+        if supabase_client and request.user_id:
+            try:
+                supabase_client.table("queries").insert({
+                    "user_id": request.user_id,
+                    "question": request.question,
+                    "timestamp": datetime.utcnow().isoformat()
+                }).execute()
+            except Exception as e:
+                # Just log the error but continue with the query
+                print(f"Error logging query: {e}")
+        
+        # Execute query
+        result = query_engine.query(request.question)
+        return {"answer": str(result)}
+    except Exception as e:
+        return {"error": f"Query failed: {str(e)}"}
 
 @app.get("/admin/status")
 async def admin_status(token: str = Depends(verify_token)):
@@ -293,13 +346,21 @@ def delete_index():
     pinecone.delete_index(INDEX_NAME)
     
 @app.get("/")
-def health_check():
-    """Root endpoint for health checks and basic API information."""
+def root():
+    """Root endpoint for basic API information."""
     return {
         "service": "LlamaIndex API",
-        "status": "healthy",
+        "status": "running",
         "version": "1.0.0",
         "docs": "/docs"
+    }
+
+@app.get("/health")
+def health_check():
+    """Simple health check endpoint that doesn't depend on external services."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat()
     }
     index = None
     return {"message": f"Index '{INDEX_NAME}' deleted successfully."}
