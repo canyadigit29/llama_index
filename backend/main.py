@@ -127,12 +127,20 @@ def load_index():
             print("Pinecone and Vector Index initialized successfully")
         except Exception as e:
             print(f"Failed to initialize Pinecone: {e}")
-            
-        # Initialize Supabase client with error handling
+              # Initialize Supabase client with error handling
         if SUPABASE_URL and SUPABASE_KEY:
             try:
                 supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
                 print("Supabase client initialized successfully")
+                
+                # Check if llama_index_documents table exists, create if needed
+                try:
+                    # Try to query the table - this will fail if it doesn't exist
+                    supabase_client.table("llama_index_documents").select("id").limit(1).execute()
+                    print("llama_index_documents table exists")
+                except Exception as table_error:
+                    print(f"Note: llama_index_documents table might not exist: {table_error}")
+                    print("Creating llama_index_documents table will be handled by Supabase migrations")
             except Exception as e:
                 print(f"Failed to initialize Supabase client: {e}")
                 supabase_client = None
@@ -465,3 +473,120 @@ async def delete_document(document_id: str, token: str = Depends(verify_token)):
         return {"message": f"Document {document_id} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
+
+@app.post("/process")
+async def process_file(request: Request):
+    """
+    Process a file that has already been uploaded to Supabase.
+    This endpoint is called by the frontend after a file is uploaded.
+    """
+    if not supabase_client:
+        raise HTTPException(status_code=500, detail="Supabase client not initialized")
+        
+    if not index:
+        raise HTTPException(status_code=500, detail="Vector index not initialized")
+    
+    try:
+        # Parse the request body
+        data = await request.json()
+        file_id = data.get("file_id")
+        supabase_file_path = data.get("supabase_file_path")
+        file_name = data.get("name", "Unknown")
+        file_type = data.get("type", "text/plain")
+        description = data.get("description", "")
+        user_id = data.get("user_id")
+        
+        if not file_id or not supabase_file_path:
+            raise HTTPException(status_code=400, detail="Missing required file information")
+            
+        print(f"Processing file {file_name} (ID: {file_id}) from Supabase path: {supabase_file_path}")
+          # Download the file from Supabase storage
+        try:
+            print(f"Attempting to download file from Supabase: {supabase_file_path}")
+            response = supabase_client.storage.from_("files").download(supabase_file_path)
+            if not response:
+                raise Exception("Failed to download file from Supabase - empty response")
+            file_content = response
+            print(f"Successfully downloaded file, size: {len(file_content) if file_content else 'unknown'} bytes")
+        except Exception as e:
+            print(f"Error downloading file from Supabase: {str(e)}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Error retrieving file from Supabase: {str(e)}"
+            )
+        
+        # Create metadata for the document
+        metadata = {
+            "supabase_file_id": file_id,
+            "name": file_name,
+            "type": file_type,
+            "description": description,
+            "user_id": user_id,
+            "processed_at": datetime.utcnow().isoformat()
+        }
+        
+        # Process the file based on its type
+        file_text = ""
+        try:
+            # Decode the file content based on type
+            if isinstance(file_content, bytes):
+                # For text-based files, try to decode as UTF-8
+                if file_type.startswith("text/") or file_type in [
+                    "application/json", 
+                    "application/xml",
+                    "application/csv"
+                ]:
+                    file_text = file_content.decode('utf-8')
+                else:
+                    # For binary files (like PDFs), we would need more specialized processing
+                    # This is simplified - in production you'd want to use libraries like PyPDF2, etc.
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Unsupported file type: {file_type}. Current implementation supports text-based files only."
+                    )
+            else:
+                file_text = str(file_content)
+        except Exception as e:
+            print(f"Error processing file content: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error processing file content: {str(e)}"
+            )
+            
+        # Create LlamaIndex document
+        doc = Document(text=file_text, metadata=metadata)
+        
+        # Insert the document into the index
+        try:
+            index.insert(doc)
+            
+            # Store the mapping between Supabase file ID and the document in Pinecone
+            # This could be useful for updates/deletions later
+            supabase_client.table("llama_index_documents").insert({
+                "supabase_file_id": file_id,
+                "processed": True,
+                "metadata": metadata
+            }).execute()
+            
+        except Exception as e:
+            print(f"Error indexing document: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error indexing document: {str(e)}"
+            )
+        
+        return {
+            "success": True,
+            "file_id": file_id,
+            "message": "File processed and indexed successfully."
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as they already have the right format
+        raise
+    except Exception as e:
+        print(f"Unexpected error processing file: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error processing file: {str(e)}"
+        )
