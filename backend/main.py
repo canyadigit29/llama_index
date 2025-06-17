@@ -500,7 +500,8 @@ async def process_file(request: Request):
         
     if not index:
         raise HTTPException(status_code=500, detail="Vector index not initialized")
-      try:
+    
+    try:
         # Parse the request body
         data = await request.json()
         file_id = data.get("file_id")
@@ -521,9 +522,10 @@ async def process_file(request: Request):
                 status_code=413, 
                 detail=f"File size ({file_size} bytes) exceeds maximum allowed size of {max_size_bytes} bytes (30MB)"
             )
-            
+        
         print(f"Processing file {file_name} (ID: {file_id}) from Supabase path: {supabase_file_path}")
-          # Download the file from Supabase storage
+        
+        # Download the file from Supabase storage
         try:
             print(f"Attempting to download file from Supabase: {supabase_file_path}")
             response = supabase_client.storage.from_("files").download(supabase_file_path)
@@ -542,12 +544,12 @@ async def process_file(request: Request):
         metadata = {
             "supabase_file_id": file_id,
             "name": file_name,
-            "type": file_type,
-            "description": description,
+            "type": file_type,            "description": description,
             "user_id": user_id,
             "processed_at": datetime.utcnow().isoformat()
         }
-          # Process the file based on its type
+        
+        # Process the file based on its type
         file_text = ""
         try:
             # Decode the file content based on type
@@ -611,7 +613,9 @@ async def process_file(request: Request):
             raise HTTPException(
                 status_code=500,
                 detail=f"Error processing file content: {str(e)}"
-            )        # Create LlamaIndex document and implement chunking
+            )
+            
+        # Create LlamaIndex document and implement chunking
         from llama_index.core.node_parser import SentenceSplitter
         
         # Create a document first
