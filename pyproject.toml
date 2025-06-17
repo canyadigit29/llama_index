@@ -51,6 +51,8 @@ dependencies = [
     "llama-index-readers-file>=0.4.0,<0.5",
     "llama-index-readers-llama-parse>=0.4.0",
     "nltk>3.8.1",
+    "llama-index-vector-stores-pinecone",
+    "pinecone-client",
 ]
 description = "Interface between LLMs and your data"
 keywords = [
