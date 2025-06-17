@@ -13,6 +13,7 @@ RUN pip install python-multipart
 COPY . .
 COPY backend/main.py ./
 COPY _llama-index/llama_index ./llama_index
+COPY llama-index-integrations/vector_stores ./llama_index/vector_stores
 
 EXPOSE 8000
 
