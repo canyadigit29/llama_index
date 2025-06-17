@@ -9,6 +9,7 @@ RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -e .
 
 COPY . .
+COPY backend/main.py ./
 
 EXPOSE 8000
 
