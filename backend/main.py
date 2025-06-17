@@ -110,21 +110,36 @@ def load_index():
             
         # Initialize Pinecone with error handling
         try:
-            pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+            pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)            # Check if index exists, if not, suggest manual creation
             if INDEX_NAME not in pinecone.list_indexes():
-                pinecone.create_index(
-                    name=INDEX_NAME,
-                    dimension=1536,  # default for OpenAI embeddings
-                    metric="cosine",
-                    cloud="aws",
-                    region="us-east-1"
-                )
-            pinecone_index = pinecone.Index(INDEX_NAME)
-            vector_store = PineconeVectorStore(pinecone_index)
+                print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
+                print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
+                
+                try:
+                    pinecone.create_index(
+                        name=INDEX_NAME,
+                        dimension=1536,  # default for OpenAI embeddings
+                        metric="cosine",
+                        pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
+                    )
+                    print(f"Successfully created Pinecone index: {INDEX_NAME}")
+                except Exception as create_error:
+                    print(f"Failed to auto-create Pinecone index: {str(create_error)}")
+                    print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
+                    print("Then restart this application.")
+                    # We'll continue and try to use the index anyway in case it was created but raised an error
             
-            # Initialize empty index
-            index = VectorStoreIndex(vector_store=vector_store)
-            print("Pinecone and Vector Index initialized successfully")
+            # Connect to the index
+            try:
+                pinecone_index = pinecone.Index(INDEX_NAME)
+                vector_store = PineconeVectorStore(pinecone_index)
+                
+                # Initialize empty index
+                index = VectorStoreIndex(vector_store=vector_store)
+                print("Pinecone and Vector Index initialized successfully")
+            except Exception as index_error:
+                print(f"Failed to connect to Pinecone index: {str(index_error)}")
+                index = None  # Set to None to indicate initialization failure
         except Exception as e:
             print(f"Failed to initialize Pinecone: {e}")
               # Initialize Supabase client with error handling
@@ -552,12 +567,15 @@ async def process_file(request: Request):
                 status_code=500,
                 detail=f"Error processing file content: {str(e)}"
             )
-            
-        # Create LlamaIndex document
+              # Create LlamaIndex document
         doc = Document(text=file_text, metadata=metadata)
         
         # Insert the document into the index
         try:
+            # Ensure the document has supabase_file_id in its metadata for deletion later
+            doc.metadata["supabase_file_id"] = file_id
+            
+            # Insert into the index
             index.insert(doc)
             
             # Store the mapping between Supabase file ID and the document in Pinecone
@@ -615,20 +633,32 @@ async def delete_file(file_id: str):
                 # Delete the metadata from our tracking table
                 supabase_client.table("llama_index_documents").delete().eq("supabase_file_id", file_id).execute()
                 print(f"Deleted tracking record for file {file_id} from llama_index_documents table")
-                
-                # Now delete the document from the vector store
+                  # Now delete the document from the vector store
                 # The exact deletion method depends on the vector store implementation
-                # For Pinecone with metadata filtering:
                 try:
-                    if PINECONE_API_KEY and PINECONE_ENVIRONMENT:
-                        # For Pinecone, we can delete by metadata filter
-                        pinecone_index = pinecone.Index(INDEX_NAME)
-                        pinecone_index.delete(
-                            filter={"supabase_file_id": file_id}
-                        )
-                        print(f"Deleted document vectors for file {file_id} from Pinecone")
+                    if PINECONE_API_KEY and PINECONE_ENVIRONMENT and index:
+                        # Try to delete using the vector store directly first
+                        try:
+                            # For newer versions of LlamaIndex, we can delete by metadata filter through the index
+                            index.delete(
+                                filter_dict={"metadata": {"supabase_file_id": file_id}}
+                            )
+                            print(f"Deleted document vectors for file {file_id} from Pinecone via LlamaIndex")
+                        except (AttributeError, NotImplementedError, Exception) as idx_err:
+                            print(f"Could not delete through LlamaIndex: {str(idx_err)}") 
+                            # Fall back to direct Pinecone deletion
+                            try:
+                                # For Pinecone, we can delete by metadata filter
+                                pinecone_index = pinecone.Index(INDEX_NAME)
+                                pinecone_index.delete(
+                                    filter={"supabase_file_id": file_id}
+                                )
+                                print(f"Deleted document vectors for file {file_id} directly from Pinecone")
+                            except Exception as pinecone_err:
+                                print(f"Error deleting directly from Pinecone: {str(pinecone_err)}")
+                                raise pinecone_err
                 except Exception as e:
-                    print(f"Error deleting vectors from Pinecone: {str(e)}")
+                    print(f"Error deleting vectors from vector store: {str(e)}")
                     # Continue with the function even if vector deletion fails
                     # This ensures we at least clean up our tracking table
                     pass
