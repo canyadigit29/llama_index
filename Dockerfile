@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first for better caching
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir pinecone-client>=3.0.2 && \
     pip install --no-cache-dir -r requirements.txt
 
 # Create data directory for temp storage
