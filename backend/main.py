@@ -590,3 +590,67 @@ async def process_file(request: Request):
             status_code=500,
             detail=f"Unexpected error processing file: {str(e)}"
         )
+
+@app.delete("/delete/{file_id}")
+async def delete_file(file_id: str):
+    """
+    Delete a file from the LlamaIndex backend.
+    This endpoint is called by the frontend when a file is deleted.
+    """
+    if not supabase_client:
+        raise HTTPException(status_code=500, detail="Supabase client not initialized")
+        
+    if not index:
+        raise HTTPException(status_code=500, detail="Vector index not initialized")
+    
+    try:
+        print(f"Attempting to delete file with ID: {file_id} from LlamaIndex")
+        
+        # First, check if this file is tracked in our llama_index_documents table
+        try:
+            response = supabase_client.table("llama_index_documents").select("*").eq("supabase_file_id", file_id).execute()
+            if response.data and len(response.data) > 0:
+                llama_doc = response.data[0]
+                
+                # Delete the metadata from our tracking table
+                supabase_client.table("llama_index_documents").delete().eq("supabase_file_id", file_id).execute()
+                print(f"Deleted tracking record for file {file_id} from llama_index_documents table")
+                
+                # Now delete the document from the vector store
+                # The exact deletion method depends on the vector store implementation
+                # For Pinecone with metadata filtering:
+                try:
+                    if PINECONE_API_KEY and PINECONE_ENVIRONMENT:
+                        # For Pinecone, we can delete by metadata filter
+                        pinecone_index = pinecone.Index(INDEX_NAME)
+                        pinecone_index.delete(
+                            filter={"supabase_file_id": file_id}
+                        )
+                        print(f"Deleted document vectors for file {file_id} from Pinecone")
+                except Exception as e:
+                    print(f"Error deleting vectors from Pinecone: {str(e)}")
+                    # Continue with the function even if vector deletion fails
+                    # This ensures we at least clean up our tracking table
+                    pass
+                
+                return {"message": f"File {file_id} deleted successfully from LlamaIndex"}
+            else:
+                # File was not found in our tracking table
+                print(f"File {file_id} was not found in llama_index_documents table")
+                return {"message": f"File {file_id} was not tracked by LlamaIndex. No deletion needed."}
+                
+        except Exception as e:
+            print(f"Error checking llama_index_documents table: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error checking if file exists in LlamaIndex: {str(e)}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Unexpected error deleting file: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error deleting file: {str(e)}"
+        )
