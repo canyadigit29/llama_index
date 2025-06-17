@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, UploadFile, File
 from pydantic import BaseModel
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
 import os
@@ -73,3 +73,35 @@ def admin_status():
     except Exception as e:
         status["index_document_count"] = f"Error: {e}"
     return JSONResponse(content=status)
+
+@app.post("/upload")
+def upload_file(file: UploadFile = File(...)):
+    data_dir = os.environ.get("DATA_DIRECTORY", "./data")
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+    file_path = os.path.join(data_dir, file.filename)
+    with open(file_path, "wb") as f:
+        f.write(file.file.read())
+    return {"message": f"File '{file.filename}' uploaded successfully."}
+
+@app.post("/reindex")
+def reindex():
+    global index
+    data_dir = os.environ.get("DATA_DIRECTORY", "./data")
+    if os.path.exists(data_dir) and os.path.isdir(data_dir):
+        documents = SimpleDirectoryReader(data_dir).load_data()
+        index = VectorStoreIndex.from_documents(documents, vector_store=index.vector_store)
+        return {"message": "Reindexing completed successfully."}
+    return {"error": "Data directory does not exist."}
+
+@app.post("/delete_index")
+def delete_index():
+    global index
+    pinecone.delete_index(INDEX_NAME)
+    index = None
+    return {"message": f"Index '{INDEX_NAME}' deleted successfully."}
+
+@app.get("/list_indices")
+def list_indices():
+    indices = pinecone.list_indexes()
+    return {"indices": indices}
