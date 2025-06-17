@@ -7,9 +7,13 @@ COPY pyproject.toml ./
 COPY README.md ./
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -e .
+RUN pip install uvicorn
+RUN pip install fastapi
+RUN pip install python-multipart
 
 COPY . .
 COPY backend/main.py ./
+COPY _llama-index/llama_index ./llama_index
 
 EXPOSE 8000
 
