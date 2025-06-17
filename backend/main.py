@@ -500,8 +500,7 @@ async def process_file(request: Request):
         
     if not index:
         raise HTTPException(status_code=500, detail="Vector index not initialized")
-    
-    try:
+      try:
         # Parse the request body
         data = await request.json()
         file_id = data.get("file_id")
@@ -513,6 +512,15 @@ async def process_file(request: Request):
         
         if not file_id or not supabase_file_path:
             raise HTTPException(status_code=400, detail="Missing required file information")
+            
+        # Check file size limits (30MB max)
+        max_size_bytes = 30 * 1024 * 1024  # 30MB
+        file_size = data.get("size", 0)
+        if file_size > max_size_bytes:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"File size ({file_size} bytes) exceeds maximum allowed size of {max_size_bytes} bytes (30MB)"
+            )
             
         print(f"Processing file {file_name} (ID: {file_id}) from Supabase path: {supabase_file_path}")
           # Download the file from Supabase storage
@@ -539,8 +547,7 @@ async def process_file(request: Request):
             "user_id": user_id,
             "processed_at": datetime.utcnow().isoformat()
         }
-        
-        # Process the file based on its type
+          # Process the file based on its type
         file_text = ""
         try:
             # Decode the file content based on type
@@ -552,12 +559,50 @@ async def process_file(request: Request):
                     "application/csv"
                 ]:
                     file_text = file_content.decode('utf-8')
+                # Handle PDF files
+                elif file_type == "application/pdf":
+                    try:
+                        # Import PDF processing libraries
+                        import tempfile
+                        from PyPDF2 import PdfReader
+                        
+                        # Create a temporary file to save the PDF
+                        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+                            temp_path = temp_file.name
+                            temp_file.write(file_content)
+                        
+                        # Extract text from PDF
+                        try:
+                            pdf_reader = PdfReader(temp_path)
+                            pdf_texts = []
+                            
+                            # Extract text from each page
+                            for page_num in range(len(pdf_reader.pages)):
+                                page = pdf_reader.pages[page_num]
+                                pdf_texts.append(page.extract_text())
+                            
+                            # Join all the pages together
+                            file_text = "\n\n".join(pdf_texts)
+                            
+                            # Clean up temp file
+                            os.unlink(temp_path)
+                        except Exception as pdf_err:
+                            print(f"Error extracting text from PDF: {str(pdf_err)}")
+                            raise HTTPException(
+                                status_code=500,
+                                detail=f"Error extracting text from PDF: {str(pdf_err)}"
+                            )
+                    except ImportError:
+                        print("PyPDF2 is not installed. Please install it to process PDF files.")
+                        raise HTTPException(
+                            status_code=500,
+                            detail="PDF processing is not available. PyPDF2 is not installed."
+                        )
                 else:
-                    # For binary files (like PDFs), we would need more specialized processing
-                    # This is simplified - in production you'd want to use libraries like PyPDF2, etc.
+                    # For other binary files we don't yet support
                     raise HTTPException(
                         status_code=400, 
-                        detail=f"Unsupported file type: {file_type}. Current implementation supports text-based files only."
+                        detail=f"Unsupported file type: {file_type}. Current implementation supports text and PDF files only."
                     )
             else:
                 file_text = str(file_content)
@@ -566,18 +611,36 @@ async def process_file(request: Request):
             raise HTTPException(
                 status_code=500,
                 detail=f"Error processing file content: {str(e)}"
-            )
-              # Create LlamaIndex document
+            )        # Create LlamaIndex document and implement chunking
+        from llama_index.core.node_parser import SentenceSplitter
+        
+        # Create a document first
         doc = Document(text=file_text, metadata=metadata)
+        
+        # Create a text splitter/chunker
+        splitter = SentenceSplitter(
+            chunk_size=1024,  # Target chunk size (characters) 
+            chunk_overlap=200,  # Overlap between chunks
+            paragraph_separator="\n\n",
+            secondary_chunking_regex="[^,.;。？！]+[,.;。？！]?",
+            tokenizer=None  # Will use default tiktoken tokenizer
+        )
+        
+        # Split the document into chunks (nodes)
+        nodes = splitter.get_nodes_from_documents([doc])
         
         # Insert the document into the index
         try:
-            # Ensure the document has supabase_file_id in its metadata for deletion later
-            doc.metadata["supabase_file_id"] = file_id
+            # Ensure each node has the file ID in its metadata for later deletion
+            for node in nodes:
+                if not node.metadata:
+                    node.metadata = {}
+                node.metadata["supabase_file_id"] = file_id
             
-            # Insert into the index
-            index.insert(doc)
+            # Insert the nodes into the index
+            index.insert_nodes(nodes)
             
+            print(f"Successfully indexed {len(nodes)} chunks from file {file_name}")
             # Store the mapping between Supabase file ID and the document in Pinecone
             # This could be useful for updates/deletions later
             supabase_client.table("llama_index_documents").insert({
