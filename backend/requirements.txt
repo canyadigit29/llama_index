@@ -5,6 +5,6 @@ llama-index-vector-stores-pinecone==0.1.6
 llama-index-readers-file==0.1.4
 pinecone-client==3.0.0
 pydantic==2.6.4
-supabase-py==2.4.0
+supabase==2.4.0
 python-multipart==0.0.9
 python-dotenv==1.0.1

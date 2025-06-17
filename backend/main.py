@@ -2,7 +2,12 @@ from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from llama_index.core import VectorStoreIndex, Document
-from llama_index.readers.file import SimpleDirectoryReader
+# Use the correct import path for SimpleDirectoryReader
+try:
+    from llama_index.readers.file import SimpleDirectoryReader
+except ImportError:
+    # Fallback import path
+    from llama_index.core import SimpleDirectoryReader
 import os
 import uuid
 import json
@@ -12,7 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Import for vector store
 import pinecone
-from llama_index.vector_stores.pinecone import PineconeVectorStore
+# Flexible import path for PineconeVectorStore
+try:
+    from llama_index.vector_stores.pinecone import PineconeVectorStore
+except ImportError:
+    try:
+        # Alternative import path
+        from llama_index.vector_stores.pinecone.base import PineconeVectorStore
+    except ImportError:
+        # Another possible path
+        from llama_index.indices.vector_store.providers.pinecone import PineconeVectorStore
 from fastapi.responses import JSONResponse
 
 # Supabase imports
