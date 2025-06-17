@@ -28,5 +28,8 @@ ENV PORT=8000
 # Expose the port (Railway will override this)
 EXPOSE ${PORT}
 
-# Use the PORT environment variable in the command
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT}
+# Make startup script executable
+RUN chmod +x start.sh
+
+# Use the startup script to handle environment variables
+CMD ["./start.sh"]

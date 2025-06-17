@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 watchPatterns = ["backend/**"]
 
 [deploy]
-startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+startCommand = "./start.sh"
 # Use a simple health check path that doesn't require external services
 healthcheckPath = "/health"
 healthcheckTimeout = 100
