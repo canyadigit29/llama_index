@@ -1,13 +1,22 @@
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from llama_index.core import VectorStoreIndex, Document
+from llama_index.core import VectorStoreIndex, Document, Settings
 # Use the correct import path for SimpleDirectoryReader
 try:
     from llama_index.readers.file import SimpleDirectoryReader
 except ImportError:
     # Fallback import path
     from llama_index.core import SimpleDirectoryReader
+# Import embeddings
+try:
+    from llama_index.embeddings.openai import OpenAIEmbedding
+except ImportError:
+    try:
+        from llama_index.core.embeddings import OpenAIEmbedding
+    except ImportError:
+        from llama_index.embeddings import OpenAIEmbedding
+
 import os
 import uuid
 import json
@@ -54,6 +63,7 @@ app.add_middleware(
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
 INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 # Supabase configuration
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -155,10 +165,15 @@ def load_index():
                     # Use the new API to get the index
                     pinecone_index = pc.Index(INDEX_NAME)
                     vector_store = PineconeVectorStore(pinecone_index)
+                      # Configure the embeddings explicitly
+                    embed_model = OpenAIEmbedding(api_key=OPENAI_API_KEY)
                     
-                    # Initialize empty index
-                    index = VectorStoreIndex(vector_store=vector_store)
-                    print("Pinecone and Vector Index initialized successfully")
+                    # Update the global settings
+                    Settings.embed_model = embed_model
+                    
+                    # Initialize empty index with the embed model explicitly set
+                    index = VectorStoreIndex(vector_store=vector_store, embed_model=embed_model)
+                    print("Pinecone and Vector Index initialized successfully with OpenAI embeddings")
                 except Exception as index_error:
                     print(f"Failed to connect to Pinecone index: {str(index_error)}")
                     index = None  # Set to None to indicate initialization failure
@@ -182,10 +197,15 @@ def load_index():
                 # Connect to the index
                 pinecone_index = pinecone.Index(INDEX_NAME)
                 vector_store = PineconeVectorStore(pinecone_index)
+                  # Configure the embeddings explicitly
+                embed_model = OpenAIEmbedding(api_key=OPENAI_API_KEY)
                 
-                # Initialize empty index
-                index = VectorStoreIndex(vector_store=vector_store)
-                print("Pinecone and Vector Index initialized successfully (legacy method)")
+                # Update the global settings
+                Settings.embed_model = embed_model
+                
+                # Initialize empty index with the embed model explicitly set
+                index = VectorStoreIndex(vector_store=vector_store, embed_model=embed_model)
+                print("Pinecone and Vector Index initialized successfully with OpenAI embeddings (legacy method)")
                 
         except Exception as index_error:
             print(f"Failed to connect to Pinecone index: {str(index_error)}")
@@ -438,9 +458,18 @@ async def reindex(user_id: Optional[str] = None, token: str = Depends(verify_tok
         
         if not documents:
             return {"message": "No documents found to index."}
-            
-        # Recreate the index with the loaded documents
-        index = VectorStoreIndex.from_documents(documents, vector_store=index.vector_store)
+              # Configure the embeddings explicitly
+        embed_model = OpenAIEmbedding(api_key=OPENAI_API_KEY)
+        
+        # Update the global settings
+        Settings.embed_model = embed_model
+        
+        # Recreate the index with the loaded documents and explicit embeddings
+        index = VectorStoreIndex.from_documents(
+            documents, 
+            vector_store=index.vector_store,
+            embed_model=embed_model
+        )
         
         return {
             "message": "Reindexing completed successfully.",
