@@ -107,38 +107,89 @@ def load_index():
         if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
             print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
             return
-            
-        # Initialize Pinecone with error handling
+              # Initialize Pinecone with error handling
         try:
-            pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)            # Check if index exists, if not, suggest manual creation
-            if INDEX_NAME not in pinecone.list_indexes():
-                print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
-                print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
+            # Use the new Pinecone client initialization
+            try:
+                # Try the new Pinecone client approach
+                from pinecone import Pinecone, ServerlessSpec
                 
+                # Create Pinecone client
+                pc = Pinecone(api_key=PINECONE_API_KEY)
+                print("Initialized Pinecone client using new API")
+                
+                # Check if index exists
+                existing_indexes = pc.list_indexes().names()
+                if INDEX_NAME not in existing_indexes:
+                    print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
+                    print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
+                    
+                    try:
+                        # Try to create the index with serverless spec
+                        pc.create_index(
+                            name=INDEX_NAME,
+                            dimension=1536,  # default for OpenAI embeddings
+                            metric="cosine",
+                            spec=ServerlessSpec(
+                                cloud=PINECONE_ENVIRONMENT.split("-")[0],  # Extract cloud provider from environment
+                                region=PINECONE_ENVIRONMENT.split("-", 1)[1] if "-" in PINECONE_ENVIRONMENT else "us-west-2"
+                            )
+                        )
+                        print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
+                    except Exception as spec_error:
+                        print(f"Serverless creation failed, trying standard creation: {spec_error}")
+                        # Try again without serverless spec (for older Pinecone accounts)
+                        try:
+                            pc.create_index(
+                                name=INDEX_NAME,
+                                dimension=1536,
+                                metric="cosine"
+                            )
+                            print(f"Successfully created Pinecone index: {INDEX_NAME}")
+                        except Exception as std_error:
+                            print(f"Failed to auto-create Pinecone index: {str(std_error)}")
+                            print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
+                
+                # Connect to the index
                 try:
+                    # Use the new API to get the index
+                    pinecone_index = pc.Index(INDEX_NAME)
+                    vector_store = PineconeVectorStore(pinecone_index)
+                    
+                    # Initialize empty index
+                    index = VectorStoreIndex(vector_store=vector_store)
+                    print("Pinecone and Vector Index initialized successfully")
+                except Exception as index_error:
+                    print(f"Failed to connect to Pinecone index: {str(index_error)}")
+                    index = None  # Set to None to indicate initialization failure
+                    
+            except (ImportError, AttributeError) as version_error:
+                # Fall back to legacy approach if needed
+                print(f"Using legacy Pinecone initialization: {version_error}")
+                
+                # Legacy initialization method (for older versions)
+                pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+                
+                if INDEX_NAME not in pinecone.list_indexes():
+                    print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. Attempting to create it...")
                     pinecone.create_index(
                         name=INDEX_NAME,
                         dimension=1536,  # default for OpenAI embeddings
                         metric="cosine",
                         pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
                     )
-                    print(f"Successfully created Pinecone index: {INDEX_NAME}")
-                except Exception as create_error:
-                    print(f"Failed to auto-create Pinecone index: {str(create_error)}")
-                    print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
-                    print("Then restart this application.")
-                    # We'll continue and try to use the index anyway in case it was created but raised an error
-              # Connect to the index
-            try:
+                    
+                # Connect to the index
                 pinecone_index = pinecone.Index(INDEX_NAME)
                 vector_store = PineconeVectorStore(pinecone_index)
                 
                 # Initialize empty index
                 index = VectorStoreIndex(vector_store=vector_store)
-                print("Pinecone and Vector Index initialized successfully")
-            except Exception as index_error:
-                print(f"Failed to connect to Pinecone index: {str(index_error)}")
-                index = None  # Set to None to indicate initialization failure
+                print("Pinecone and Vector Index initialized successfully (legacy method)")
+                
+        except Exception as index_error:
+            print(f"Failed to connect to Pinecone index: {str(index_error)}")
+            index = None  # Set to None to indicate initialization failure
         except Exception as e:
             print(f"Failed to initialize Pinecone: {e}")
           # Initialize Supabase client with error handling
@@ -253,16 +304,27 @@ async def admin_status(token: str = Depends(verify_token)):
             "timestamp": datetime.utcnow().isoformat()
         }
     }
-    
-    # Check Pinecone status
+      # Check Pinecone status
     status["services"]["pinecone"]["api_key_set"] = bool(PINECONE_API_KEY)
     status["services"]["pinecone"]["environment_set"] = bool(PINECONE_ENVIRONMENT)
     
     try:
-        pinecone_indexes = pinecone.list_indexes()
-        status["services"]["pinecone"]["connected"] = True
-        status["services"]["pinecone"]["indexes"] = pinecone_indexes
-        status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
+        # Try new Pinecone client approach first
+        try:
+            from pinecone import Pinecone
+            pc = Pinecone(api_key=PINECONE_API_KEY)
+            pinecone_indexes = pc.list_indexes().names()
+            status["services"]["pinecone"]["connected"] = True
+            status["services"]["pinecone"]["indexes"] = pinecone_indexes
+            status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
+            status["services"]["pinecone"]["client_version"] = "new"
+        except (ImportError, AttributeError):
+            # Fall back to legacy approach
+            pinecone_indexes = pinecone.list_indexes()
+            status["services"]["pinecone"]["connected"] = True
+            status["services"]["pinecone"]["indexes"] = pinecone_indexes
+            status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
+            status["services"]["pinecone"]["client_version"] = "legacy"
     except Exception as e:
         status["services"]["pinecone"]["connected"] = False
         status["services"]["pinecone"]["error"] = str(e)
@@ -390,7 +452,19 @@ async def reindex(user_id: Optional[str] = None, token: str = Depends(verify_tok
 @app.post("/delete_index")
 def delete_index():
     global index
-    pinecone.delete_index(INDEX_NAME)
+    try:
+        # Try new Pinecone client approach first
+        try:
+            from pinecone import Pinecone
+            pc = Pinecone(api_key=PINECONE_API_KEY)
+            pc.delete_index(INDEX_NAME)
+            print(f"Deleted Pinecone index: {INDEX_NAME} using new API")
+        except (ImportError, AttributeError):
+            # Fall back to legacy approach
+            pinecone.delete_index(INDEX_NAME)
+            print(f"Deleted Pinecone index: {INDEX_NAME} using legacy API")
+    except Exception as e:
+        print(f"Error deleting index: {e}")
     
 @app.get("/")
 def root():
@@ -412,8 +486,19 @@ def health_check():
 
 @app.get("/list_indices")
 def list_indices():
-    indices = pinecone.list_indexes()
-    return {"indices": indices}
+    try:
+        # Try new Pinecone client approach first
+        try:
+            from pinecone import Pinecone
+            pc = Pinecone(api_key=PINECONE_API_KEY)
+            indices = pc.list_indexes().names()
+            return {"indices": indices}
+        except (ImportError, AttributeError):
+            # Fall back to legacy approach
+            indices = pinecone.list_indexes()
+            return {"indices": indices}
+    except Exception as e:
+        return {"error": f"Failed to list indices: {str(e)}"}
 
 # Authentication utility
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
