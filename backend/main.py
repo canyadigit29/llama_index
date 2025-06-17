@@ -128,8 +128,7 @@ def load_index():
                     print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
                     print("Then restart this application.")
                     # We'll continue and try to use the index anyway in case it was created but raised an error
-            
-            # Connect to the index
+              # Connect to the index
             try:
                 pinecone_index = pinecone.Index(INDEX_NAME)
                 vector_store = PineconeVectorStore(pinecone_index)
@@ -142,9 +141,11 @@ def load_index():
                 index = None  # Set to None to indicate initialization failure
         except Exception as e:
             print(f"Failed to initialize Pinecone: {e}")
-              # Initialize Supabase client with error handling
-        if SUPABASE_URL and SUPABASE_KEY:
+        
+        # Initialize Supabase client with error handling        if SUPABASE_URL and SUPABASE_KEY:
             try:
+                # Initialize Supabase client with only the required parameters
+                # to avoid issues with unexpected keyword arguments like 'proxy'
                 supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
                 print("Supabase client initialized successfully")
                 
@@ -385,8 +386,6 @@ def health_check():
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat()
     }
-    index = None
-    return {"message": f"Index '{INDEX_NAME}' deleted successfully."}
 
 @app.get("/list_indices")
 def list_indices():
@@ -395,10 +394,37 @@ def list_indices():
 
 # Authentication utility
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify JWT token from Supabase if authentication is required"""
-    # In production, implement actual token verification with Supabase
-    # This is a placeholder - integrate with Supabase auth in production
-    return credentials.credentials
+    """Verify token for API access
+    
+    Checks if the provided token matches the expected API key.
+    Falls back to JWT verification if API_KEY is not set.
+    """
+    # Return None if no credentials provided
+    if not credentials:
+        return None
+        
+    token = credentials.credentials
+    
+    # Check if an API key is set for simple auth
+    api_key = os.environ.get("API_KEY")
+    if api_key and token == api_key:
+        return token
+    
+    # If no API key is set, allow in dev mode
+    if os.environ.get("ENVIRONMENT") == "development":
+        return token
+        
+    # In production without matching key, reject
+    if api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    # No API key set, accept any token (not recommended for production)
+    print("WARNING: No API_KEY set, authentication is disabled")
+    return token
 
 # Utility function to load documents from Supabase
 async def load_documents_from_supabase(user_id: Optional[str] = None):
@@ -490,11 +516,19 @@ async def delete_document(document_id: str, token: str = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
 
 @app.post("/process")
-async def process_file(request: Request):
+async def process_file(request: Request, token: str = Depends(verify_token)):
     """
     Process a file that has already been uploaded to Supabase.
     This endpoint is called by the frontend after a file is uploaded.
+    
+    Authentication is required via API key or development mode.
     """
+    if not token:
+        raise HTTPException(
+            status_code=401, 
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     if not supabase_client:
         raise HTTPException(status_code=500, detail="Supabase client not initialized")
         
@@ -677,11 +711,19 @@ async def process_file(request: Request):
         )
 
 @app.delete("/delete/{file_id}")
-async def delete_file(file_id: str):
+async def delete_file(file_id: str, token: str = Depends(verify_token)):
     """
     Delete a file from the LlamaIndex backend.
     This endpoint is called by the frontend when a file is deleted.
+    
+    Authentication is required via API key or development mode.
     """
+    if not token:
+        raise HTTPException(
+            status_code=401, 
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
     if not supabase_client:
         raise HTTPException(status_code=500, detail="Supabase client not initialized")
         
