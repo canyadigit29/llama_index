@@ -164,16 +164,40 @@ def load_index():
                 try:
                     # Use the new API to get the index
                     pinecone_index = pc.Index(INDEX_NAME)
-                    vector_store = PineconeVectorStore(pinecone_index)
-                      # Configure the embeddings explicitly
-                    embed_model = OpenAIEmbedding(api_key=OPENAI_API_KEY)
-                    
-                    # Update the global settings
+                    vector_store = PineconeVectorStore(pinecone_index)                    # Configure the embeddings explicitly
+                    embed_model = OpenAIEmbedding(
+                        api_key=OPENAI_API_KEY,
+                        model="text-embedding-3-large",  # Large model with 3072 dimensions
+                        dimensions=3072
+                    )
+                      # Update the global settings
                     Settings.embed_model = embed_model
                     
                     # Initialize empty index with the embed model explicitly set
-                    index = VectorStoreIndex(vector_store=vector_store, embed_model=embed_model)
-                    print("Pinecone and Vector Index initialized successfully with OpenAI embeddings")
+                    # For a new/empty index, we need to create a minimal structure
+                    try:
+                        # Try to create with empty nodes list to initialize structure
+                        index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
+                        print("Pinecone and Vector Index initialized successfully with OpenAI embeddings")
+                    except Exception as struct_error:
+                        print(f"Note: Could not initialize with empty nodes: {struct_error}")
+                        # Create a simple document as placeholder if needed
+                        placeholder_doc = Document(text="Placeholder document for initializing index.", id_="placeholder")
+                        index = VectorStoreIndex.from_documents([placeholder_doc], vector_store=vector_store, embed_model=embed_model)
+                        print("Initialized index with a placeholder document")
+                    except ValueError as e:
+                        if "One of nodes, objects, or index_struct must be provided" in str(e):
+                            # Create an empty document to initialize the index structure
+                            print("Creating an empty index with a blank document to initialize structure")
+                            empty_doc = Document(text="This is a placeholder document to initialize the index structure.")
+                            index = VectorStoreIndex.from_documents(
+                                [empty_doc], 
+                                vector_store=vector_store,
+                                embed_model=embed_model
+                            )
+                            print("Created new index structure with an empty document")
+                        else:
+                            raise
                 except Exception as index_error:
                     print(f"Failed to connect to Pinecone index: {str(index_error)}")
                     index = None  # Set to None to indicate initialization failure
@@ -196,16 +220,40 @@ def load_index():
                     
                 # Connect to the index
                 pinecone_index = pinecone.Index(INDEX_NAME)
-                vector_store = PineconeVectorStore(pinecone_index)
-                  # Configure the embeddings explicitly
-                embed_model = OpenAIEmbedding(api_key=OPENAI_API_KEY)
-                
-                # Update the global settings
+                vector_store = PineconeVectorStore(pinecone_index)                # Configure the embeddings explicitly
+                embed_model = OpenAIEmbedding(
+                    api_key=OPENAI_API_KEY,
+                    model="text-embedding-3-large",  # Large model with 3072 dimensions
+                    dimensions=3072
+                )
+                  # Update the global settings
                 Settings.embed_model = embed_model
                 
                 # Initialize empty index with the embed model explicitly set
-                index = VectorStoreIndex(vector_store=vector_store, embed_model=embed_model)
-                print("Pinecone and Vector Index initialized successfully with OpenAI embeddings (legacy method)")
+                # For a new/empty index, we need to create a minimal structure
+                try:
+                    # Try to create with empty nodes list to initialize structure
+                    index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
+                    print("Pinecone and Vector Index initialized successfully with OpenAI embeddings (legacy method)")
+                except Exception as struct_error:
+                    print(f"Note: Could not initialize with empty nodes: {struct_error}")
+                    # Create a simple document as placeholder if needed
+                    placeholder_doc = Document(text="Placeholder document for initializing index.", id_="placeholder")
+                    index = VectorStoreIndex.from_documents([placeholder_doc], vector_store=vector_store, embed_model=embed_model)
+                    print("Initialized index with a placeholder document (legacy method)")
+                except ValueError as e:
+                    if "One of nodes, objects, or index_struct must be provided" in str(e):
+                        # Create an empty document to initialize the index structure
+                        print("Creating an empty index with a blank document to initialize structure")
+                        empty_doc = Document(text="This is a placeholder document to initialize the index structure.")
+                        index = VectorStoreIndex.from_documents(
+                            [empty_doc], 
+                            vector_store=vector_store,
+                            embed_model=embed_model
+                        )
+                        print("Created new index structure with an empty document (legacy method)")
+                    else:
+                        raise
                 
         except Exception as index_error:
             print(f"Failed to connect to Pinecone index: {str(index_error)}")
@@ -459,7 +507,11 @@ async def reindex(user_id: Optional[str] = None, token: str = Depends(verify_tok
         if not documents:
             return {"message": "No documents found to index."}
               # Configure the embeddings explicitly
-        embed_model = OpenAIEmbedding(api_key=OPENAI_API_KEY)
+        embed_model = OpenAIEmbedding(
+            api_key=OPENAI_API_KEY,
+            model="text-embedding-3-large",  # Large model with 3072 dimensions
+            dimensions=3072
+        )
         
         # Update the global settings
         Settings.embed_model = embed_model
