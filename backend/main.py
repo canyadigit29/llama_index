@@ -5,7 +5,7 @@ import os
 
 # Pinecone imports
 import pinecone
-from llama_index.vector_stores.pinecone import PineconeVectorStore
+from llama_index.vector_stores.llama_index_vector_stores_pinecone.llama_index.vector_stores.pinecone import PineconeVectorStore
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
