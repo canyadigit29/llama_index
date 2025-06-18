@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
+from middleware import add_request_logger
 from llama_index.core import VectorStoreIndex, Document, Settings
 # Use the correct import path for SimpleDirectoryReader
 try:
@@ -54,13 +55,17 @@ app = FastAPI(title="LlamaIndex API",
               description="Backend API for LlamaIndex document ingestion and querying",
               version="1.0.0")
 
+# Add request logging middleware to track ALL incoming requests
+add_request_logger(app)
+
 # Add CORS middleware for frontend integration
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+    CORSMiddleware,    allow_origins=[
         "https://llamaindex-production-633d.up.railway.app",  # Backend URL itself
         "http://localhost:3000",          # For local development frontend
         "https://localhost:3000",         # For secure local development
+        "https://chatbot-ui-loyat-one.vercel.app",  # Your Vercel frontend
+        "*",                             # Allow all origins temporarily for debugging
         os.environ.get("FRONTEND_URL", ""),  # Get from environment variable if set
     ],
     allow_credentials=True,
@@ -1020,9 +1025,28 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             except Exception as list_error:
                 print(f"Error listing files in bucket: {str(list_error)}")
                 print("Continuing with download attempt anyway...")
-            
-            # Attempt file download
-            response = supabase_client.storage.from_("files").download(supabase_file_path)
+              # Attempt file download
+            print(f"Attempting to download with original path: '{supabase_file_path}'")
+            try:
+                # First try with the original path
+                response = supabase_client.storage.from_("files").download(supabase_file_path)
+                print(f"✓ Download successful with original path")
+            except Exception as orig_error:
+                print(f"First download attempt failed: {str(orig_error)}")
+                
+                # If that fails, try with user_id/file_id format
+                if file_id and user_id:
+                    alternative_path = f"{user_id}/{file_id}"
+                    print(f"Trying alternative path format: '{alternative_path}'")
+                    try:
+                        response = supabase_client.storage.from_("files").download(alternative_path)
+                        print(f"✓ Download successful with alternative path: user_id/file_id")
+                    except Exception as alt_error:
+                        print(f"Alternative path also failed: {str(alt_error)}")
+                        raise Exception(f"Failed to download file with both original path '{supabase_file_path}' and alternative path '{alternative_path}'")
+                else:
+                    print("Cannot try alternative path: missing user_id or file_id")
+                    raise orig_error
             
             if not response:
                 print("ERROR: Empty response from Supabase download")
