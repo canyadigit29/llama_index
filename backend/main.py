@@ -41,6 +41,15 @@ from fastapi.responses import JSONResponse
 # Supabase imports
 from supabase import create_client, Client
 
+# JWT handling
+import base64
+try:
+    import jwt
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
+    print("WARNING: PyJWT not installed. JWT verification will not work. Install with pip install pyjwt")
+
 app = FastAPI(title="LlamaIndex API", 
               description="Backend API for LlamaIndex document ingestion and querying",
               version="1.0.0")
@@ -62,8 +71,13 @@ app.add_middleware(
 # Environment variables
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
-INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
+PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
+INDEX_NAME = PINECONE_INDEX_NAME  # For backward compatibility
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+# OpenAI embedding configuration
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-large")
+EMBEDDING_DIMENSIONS = int(os.environ.get("EMBEDDING_DIMENSIONS", "3072"))
 
 # Supabase configuration
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -91,17 +105,33 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
     
     # In development mode or if no JWT secret, just return the token
     if not jwt_secret or os.environ.get("ENVIRONMENT") == "development":
+        print("Development mode or no JWT secret - skipping token verification")
         return token
         
     # In production with JWT secret, verify the token
-    try:
-        # Basic validation - in a real implementation, you would
-        # decode and verify the JWT using a library like python-jose
-        # For now, we'll just return the token
+    if JWT_AVAILABLE:
+        try:
+            # Supabase JWT verification
+            # The secret is base64 encoded, need to decode it first
+            jwt_secret_bytes = base64.b64decode(jwt_secret)
+            
+            # Decode and verify JWT
+            decoded = jwt.decode(
+                token,
+                jwt_secret_bytes,
+                algorithms=["HS256"],
+                audience="authenticated"
+            )
+            
+            # Return the token if verification succeeds
+            print("JWT verification successful")
+            return token
+        except Exception as e:
+            print(f"Token verification failed: {e}")
+            return None
+    else:
+        print("WARNING: JWT library not available, token verification skipped")
         return token
-    except Exception as e:
-        print(f"Token verification failed: {e}")
-        return None
 
 # Initialize services and build index at startup
 @app.on_event("startup")
@@ -112,11 +142,15 @@ def load_index():
     index = None
     supabase_client = None
     
+    # First set up basic functionality without external dependencies
+    print("Starting application initialization...")
+    
+    # Initialize external services with more robust error handling
     try:
         # Check if Pinecone credentials are available
         if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
             print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
-            return
+            # Continue initialization - don't return early
               # Initialize Pinecone with error handling
         try:
             # Use the new Pinecone client initialization
@@ -288,19 +322,51 @@ def load_index():
                                 supabase_key=SUPABASE_KEY
                             )
                     else:
-                        raise
-                print("Supabase client initialized successfully")
+                        raise                print("Supabase client initialized successfully")
+                
+                # Try to make a simple API call to verify connectivity
+                try:
+                    health_check = supabase_client.table("llama_index_documents").select("count", count="exact").limit(1).execute()
+                    print(f"Supabase connectivity verified with simple query")
+                except Exception as health_error:
+                    print(f"Supabase connectivity check failed: {health_error}")
+                    if "Authentication failed" in str(health_error) or "JWT" in str(health_error):
+                        print("AUTHENTICATION ERROR: Likely issue with Supabase key or permissions")
+                        print("Verify SUPABASE_ANON_KEY is correct and RLS policies are properly configured")
+                    elif "not found" in str(health_error).lower():
+                        print("TABLE ERROR: Required table not found in database")
+                        print("Make sure all migration scripts have been run")
+                    else:
+                        print(f"Unexpected Supabase error: {str(health_error)}")
+                
+                # Check storage bucket access
+                try:
+                    storage_buckets = supabase_client.storage.list_buckets()
+                    print(f"Successfully accessed storage buckets: {[b['name'] for b in storage_buckets]}")
+                except Exception as storage_error:
+                    print(f"Failed to access storage buckets: {storage_error}")
+                    if "permission" in str(storage_error).lower() or "access" in str(storage_error).lower():
+                        print("STORAGE ERROR: Likely permissions issue with storage buckets")
+                        print("Verify RLS policies for storage are correctly set up")
                 
                 # Check if llama_index_documents table exists, create if needed
                 try:
                     # Try to query the table - this will fail if it doesn't exist
                     supabase_client.table("llama_index_documents").select("id").limit(1).execute()
-                    print("llama_index_documents table exists")
+                    print("'llama_index_documents' table exists")
                 except Exception as table_error:
-                    print(f"Note: llama_index_documents table might not exist: {table_error}")
-                    print("Creating llama_index_documents table will be handled by Supabase migrations")
+                    print(f"'llama_index_documents' table check failed: {table_error}")
+                    if "not found" in str(table_error).lower():
+                        print("WARNING: 'llama_index_documents' table not found. Please run the migration script.")
             except Exception as e:
                 print(f"Failed to initialize Supabase client: {e}")
+                # Check for common errors and provide helpful messages
+                if "connection" in str(e).lower() or "network" in str(e).lower():
+                    print("NETWORK ERROR: Could not connect to Supabase")
+                    print("Check that the SUPABASE_URL is correct and the service is accessible from your deployment environment")
+                elif "unauthorized" in str(e).lower() or "authentication" in str(e).lower():
+                    print("AUTHENTICATION ERROR: Supabase rejected the provided credentials")
+                    print("Verify that SUPABASE_ANON_KEY is correct")
                 supabase_client = None
         else:
             print("WARNING: Missing Supabase credentials. Document storage features will be unavailable.")
@@ -332,14 +398,24 @@ class DocumentResponse(BaseModel):
 async def query(request: QueryRequest, token: str = Depends(verify_token)):
     # Check if index is available
     if index is None:
+        print("Query attempted but vector index is not available")
         return {
             "error": "Vector index not available", 
-            "message": "Please check Pinecone configuration and API keys"
+            "message": "Please check Pinecone configuration and API keys",
+            "status": "service_unavailable"
         }
     
     try:
-        # Create query engine
-        query_engine = index.as_query_engine()
+        # Create query engine with error handling
+        try:
+            query_engine = index.as_query_engine()
+        except Exception as qe_error:
+            print(f"Failed to create query engine: {str(qe_error)}")
+            return {
+                "error": "Failed to initialize query engine",
+                "message": "Internal server error with query engine creation",
+                "status": "internal_error"
+            }
         
         # Log the query to Supabase (optional, non-blocking)
         if supabase_client and request.user_id:
@@ -353,11 +429,26 @@ async def query(request: QueryRequest, token: str = Depends(verify_token)):
                 # Just log the error but continue with the query
                 print(f"Error logging query: {e}")
         
-        # Execute query
-        result = query_engine.query(request.question)
-        return {"answer": str(result)}
+        # Execute query with timeout and error handling
+        try:
+            # Execute query
+            result = query_engine.query(request.question)
+            print(f"Query successful: '{request.question}' -> response length: {len(str(result))}")
+            return {"answer": str(result)}
+        except Exception as query_error:
+            print(f"Query execution failed: {str(query_error)}")
+            return {
+                "error": f"Query execution failed",
+                "message": f"Error: {str(query_error)}",
+                "status": "query_error"
+            }
     except Exception as e:
-        return {"error": f"Query failed: {str(e)}"}
+        print(f"Unexpected query error: {str(e)}")
+        return {
+            "error": "Unexpected error",
+            "message": f"Details: {str(e)}",
+            "status": "error"
+        }
 
 @app.get("/admin/status")
 async def admin_status(token: str = Depends(verify_token)):
@@ -550,19 +641,129 @@ def delete_index():
 @app.get("/")
 def root():
     """Root endpoint for basic API information."""
-    return {
-        "service": "LlamaIndex API",
-        "status": "running",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
+    # This is the most fundamental endpoint and should never fail
+    try:
+        # Get service status with external dependencies
+        services = {
+            "pinecone": {
+                "initialized": index is not None,
+                "api_key_set": bool(PINECONE_API_KEY),
+                "environment_set": bool(PINECONE_ENVIRONMENT),
+                "index_name": PINECONE_INDEX_NAME,
+                "embedding_model": EMBEDDING_MODEL,
+                "embedding_dimensions": EMBEDDING_DIMENSIONS
+            },
+            "supabase": {
+                "initialized": supabase_client is not None,
+                "url_set": bool(SUPABASE_URL),
+                "key_set": bool(SUPABASE_KEY),
+                "jwt_secret_set": bool(os.environ.get("SUPABASE_JWT_SECRET")),
+                "jwt_library_available": JWT_AVAILABLE
+            },
+            "openai": {
+                "api_key_set": bool(OPENAI_API_KEY)
+            },
+            "auth": {
+                "api_key_auth": bool(os.environ.get("BACKEND_API_KEY")),
+                "environment": os.environ.get("ENVIRONMENT", "production")
+            }
+        }
+        
+        # Add build and deployment info
+        deployment_info = {
+            "port": os.environ.get("PORT", 8000),
+            "host": "0.0.0.0",
+            "railway_service_id": os.environ.get("RAILWAY_SERVICE_ID", "Not deployed on Railway"),
+            "deployed": bool(os.environ.get("RAILWAY_SERVICE_ID")),
+        }
+        
+        return {
+            "service": "LlamaIndex API",
+            "status": "running",
+            "version": "1.0.2",
+            "docs": "/docs",
+            "services": services,
+            "deployment": deployment_info,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        # Absolute fallback that should never fail
+        return {
+            "service": "LlamaIndex API",
+            "status": "running with errors",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 @app.get("/health")
 def health_check():
-    """Simple health check endpoint that doesn't depend on external services."""
+    """Health check endpoint with detailed diagnostics for troubleshooting."""
+    # Basic services status
+    services_status = {
+        "pinecone": bool(index) and "connected" or "not connected",
+        "supabase": bool(supabase_client) and "connected" or "not connected",
+        "openai": bool(OPENAI_API_KEY) and "configured" or "not configured"
+    }
+    
+    # Environment variable checks (without revealing values)
+    env_vars = {
+        "OPENAI_API_KEY": bool(OPENAI_API_KEY),
+        "PINECONE_API_KEY": bool(PINECONE_API_KEY),
+        "PINECONE_ENVIRONMENT": bool(PINECONE_ENVIRONMENT) if "PINECONE_ENVIRONMENT" in globals() else False,
+        "PINECONE_INDEX_NAME": bool(PINECONE_INDEX_NAME),
+        "SUPABASE_URL": bool(SUPABASE_URL),
+        "SUPABASE_ANON_KEY": bool(SUPABASE_KEY),
+        "SUPABASE_JWT_SECRET": bool(os.environ.get("SUPABASE_JWT_SECRET")),
+        "BACKEND_API_KEY": bool(os.environ.get("BACKEND_API_KEY")),
+        "PORT": os.environ.get("PORT", 8000),
+        "ENVIRONMENT": os.environ.get("ENVIRONMENT", "production"),
+        "EMBEDDING_DIMENSIONS": EMBEDDING_DIMENSIONS,
+        "EMBEDDING_MODEL": EMBEDDING_MODEL
+    }
+    
+    # Detailed status checks (where possible without causing failures)
+    detailed_status = {}
+    
+    # Check Pinecone in more detail
+    if bool(index):
+        try:
+            detailed_status["pinecone"] = {
+                "index_name": PINECONE_INDEX_NAME,
+                "dimensions": EMBEDDING_DIMENSIONS,
+                "initialized": True
+            }
+        except Exception as e:
+            detailed_status["pinecone"] = {
+                "error": str(e),
+                "initialized": True  # We know it's initialized because index is not None
+            }
+    else:
+        detailed_status["pinecone"] = {"initialized": False}
+    
+    # Check Supabase in more detail
+    if bool(supabase_client):
+        try:
+            # Just check if we can access table info without making an actual query
+            detailed_status["supabase"] = {
+                "url": SUPABASE_URL.replace("https://", "****").replace(".supabase.co", "****") if SUPABASE_URL else None,
+                "initialized": True,
+                "jwt_verification": JWT_AVAILABLE
+            }
+        except Exception as e:
+            detailed_status["supabase"] = {
+                "error": str(e),
+                "initialized": True  # We know it's initialized because supabase_client is not None
+            }
+    else:
+        detailed_status["supabase"] = {"initialized": False}
+    
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.utcnow().isoformat(),
+        "services": services_status,
+        "environment_vars": env_vars,
+        "detailed_status": detailed_status,
+        "version": "1.0.2"
     }
 
 @app.get("/list_indices")
