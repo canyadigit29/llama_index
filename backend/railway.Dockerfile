@@ -24,8 +24,8 @@ COPY Procfile .
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 
-# Expose the port
-EXPOSE ${PORT}
+# Expose the port - explicitly use 8000 to match Railway's routing
+EXPOSE 8000
 
-# Use the PORT environment variable in the command
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT}
+# Use explicit port 8000 in the command to ensure consistency
+CMD uvicorn main:app --host 0.0.0.0 --port 8000
