@@ -1024,15 +1024,36 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                 print(f"[DEBUG] Auth successful! User ID: {user.user.id if user and user.user else 'Unknown'}")
             except Exception as auth_err:
                 print(f"[DEBUG] Auth error: {str(auth_err)}")
-                
-            # Check JWT and headers
+                  # Check JWT and headers
             print(f"[DEBUG] JWT token status: {'Present' if supabase_client.auth._auth_token else 'Missing'}")
+            
+            # Import service role helper
+            from supabase_service_auth import get_service_authenticated_supabase
+            
+            # Create a service-role authenticated client as backup
+            service_client = get_service_authenticated_supabase()
+            if service_client:
+                print(f"[DEBUG] Service role client created successfully as backup")
+            else:
+                print(f"[DEBUG] Failed to create service role client - missing SUPABASE_SERVICE_ROLE_KEY?")
                 
             # Try to list files in the bucket
             print(f"[DEBUG] Listing files in the 'files' bucket...")
             try:
-                files_in_bucket = supabase_client.storage.from_("files").list()
-                print(f"[DEBUG] Files in bucket: {[f['name'] for f in files_in_bucket[:5]]}{'... and more' if len(files_in_bucket) > 5 else ''}")
+                # First try with regular client
+                try:
+                    files_in_bucket = supabase_client.storage.from_("files").list()
+                    print(f"[DEBUG] Files in bucket (regular auth): {[f['name'] for f in files_in_bucket[:5]]}{'... and more' if len(files_in_bucket) > 5 else ''}")
+                except Exception as list_regular_error:
+                    print(f"[DEBUG] Regular auth listing failed: {str(list_regular_error)}")
+                    # Fall back to service role if available
+                    if service_client:
+                        print(f"[DEBUG] Trying to list files with service role...")
+                        files_in_bucket = service_client.storage.from_("files").list()
+                        print(f"[DEBUG] Files in bucket (service auth): {[f['name'] for f in files_in_bucket[:5]]}{'... and more' if len(files_in_bucket) > 5 else ''}")
+                    else:
+                        print(f"[DEBUG] No fallback available for file listing")
+                        files_in_bucket = []
                 
                 # Check if the file exists in storage
                 file_exists = any(f['name'] == supabase_file_path for f in files_in_bucket)
@@ -1045,41 +1066,67 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             except Exception as list_error:
                 print(f"[DEBUG] Error listing files in bucket: {str(list_error)}")
                 print("[DEBUG] Continuing with download attempt anyway...")
-                
+                  # From the imported helper
+            from supabase_service_auth import download_file_with_service_role
+            
             # Attempt file download
             print(f"[DEBUG] Attempting to download with original path: '{supabase_file_path}'")
             try:
                 # First try with the original path
                 response = supabase_client.storage.from_("files").download(supabase_file_path)
-                print(f"[DEBUG] ✓ Download successful with original path")
+                print(f"[DEBUG] ✓ Download successful with original path (regular auth)")
             except Exception as orig_error:
                 print(f"[DEBUG] First download attempt failed: {str(orig_error)}")
                 print(f"[DEBUG] Error type: {type(orig_error).__name__}")
-                  # If that fails, try with user_id/file_id format
-                if file_id and user_id:
-                    alternative_path = f"{user_id}/{file_id}"
-                    print(f"[DEBUG] Trying alternative path format: '{alternative_path}'")
-                    try:
-                        response = supabase_client.storage.from_("files").download(alternative_path)
-                        print(f"[DEBUG] ✓ Download successful with alternative path: user_id/file_id")
-                    except Exception as alt_error:
-                        print(f"[DEBUG] Alternative path also failed: {str(alt_error)}")
-                        print(f"[DEBUG] Error type: {type(alt_error).__name__}")
-                        
-                        # Try one more attempt with just the file_id
-                        print(f"[DEBUG] Last attempt: trying with just file_id '{file_id}'")
-                        try:
-                            response = supabase_client.storage.from_("files").download(file_id)
-                            print(f"[DEBUG] ✓ Download successful with file_id only")
-                        except Exception as last_error:
-                            print(f"[DEBUG] All download attempts failed. Details:")
-                            print(f"[DEBUG] - Original path error: {str(orig_error)}")
-                            print(f"[DEBUG] - Alternative path error: {str(alt_error)}")
-                            print(f"[DEBUG] - File ID only error: {str(last_error)}")
-                            raise Exception(f"Failed to download file with all path formats. See logs for details.")
+                
+                # Try service role with original path
+                print(f"[DEBUG] Trying service role auth with original path")
+                service_response = download_file_with_service_role("files", supabase_file_path)
+                if service_response:
+                    response = service_response
+                    print(f"[DEBUG] ✓ Download successful with original path (service role auth)")
                 else:
-                    print("[DEBUG] Cannot try alternative path: missing user_id or file_id")
-                    raise orig_error
+                    # If service role with original path fails, try alternative paths
+                    if file_id and user_id:
+                        alternative_path = f"{user_id}/{file_id}"
+                        print(f"[DEBUG] Trying alternative path format: '{alternative_path}'")
+                        
+                        # Try regular auth with alternative path
+                        try:
+                            response = supabase_client.storage.from_("files").download(alternative_path)
+                            print(f"[DEBUG] ✓ Download successful with alternative path (regular auth)")
+                        except Exception as alt_error:
+                            print(f"[DEBUG] Alternative path failed with regular auth: {str(alt_error)}")
+                            
+                            # Try service role with alternative path
+                            print(f"[DEBUG] Trying service role auth with alternative path")
+                            service_response = download_file_with_service_role("files", alternative_path)
+                            if service_response:
+                                response = service_response
+                                print(f"[DEBUG] ✓ Download successful with alternative path (service role auth)")
+                            else:
+                                # Final attempt with just file_id
+                                print(f"[DEBUG] Last attempt: trying with just file_id '{file_id}'")
+                                
+                                # Try regular auth with file_id only
+                                try:
+                                    response = supabase_client.storage.from_("files").download(file_id)
+                                    print(f"[DEBUG] ✓ Download successful with file_id only (regular auth)")
+                                except Exception as file_id_error:
+                                    # Try service role with file_id only
+                                    service_response = download_file_with_service_role("files", file_id)
+                                    if service_response:
+                                        response = service_response
+                                        print(f"[DEBUG] ✓ Download successful with file_id only (service role auth)")
+                                    else:
+                                        print(f"[DEBUG] All download attempts failed. Details:")
+                                        print(f"[DEBUG] - Original path error: {str(orig_error)}")
+                                        print(f"[DEBUG] - Alternative path regular auth error: {str(alt_error)}")
+                                        print(f"[DEBUG] - File ID only regular auth error: {str(file_id_error)}")
+                                        raise Exception(f"Failed to download file with all path formats and auth methods. See logs for details.")
+                    else:
+                        print("[DEBUG] Cannot try alternative path: missing user_id or file_id")
+                        raise orig_error
             
             if not response:
                 print("ERROR: Empty response from Supabase download")
