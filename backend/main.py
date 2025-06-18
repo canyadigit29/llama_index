@@ -1017,35 +1017,68 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             except Exception as bucket_error:
                 print(f"Error listing storage buckets: {str(bucket_error)}")
                 print("Continuing with download attempt anyway...")
-            
+              # Get Supabase auth status
+            print(f"[DEBUG] Supabase auth status check...")
+            try:
+                user = supabase_client.auth.get_user()
+                print(f"[DEBUG] Auth successful! User ID: {user.user.id if user and user.user else 'Unknown'}")
+            except Exception as auth_err:
+                print(f"[DEBUG] Auth error: {str(auth_err)}")
+                
+            # Check JWT and headers
+            print(f"[DEBUG] JWT token status: {'Present' if supabase_client.auth._auth_token else 'Missing'}")
+                
             # Try to list files in the bucket
+            print(f"[DEBUG] Listing files in the 'files' bucket...")
             try:
                 files_in_bucket = supabase_client.storage.from_("files").list()
-                print(f"Files in bucket: {[f['name'] for f in files_in_bucket[:5]]}{'... and more' if len(files_in_bucket) > 5 else ''}")
+                print(f"[DEBUG] Files in bucket: {[f['name'] for f in files_in_bucket[:5]]}{'... and more' if len(files_in_bucket) > 5 else ''}")
+                
+                # Check if the file exists in storage
+                file_exists = any(f['name'] == supabase_file_path for f in files_in_bucket)
+                alt_path = f"{user_id}/{file_id}" if user_id and file_id else None
+                alt_exists = any(f['name'] == alt_path for f in files_in_bucket) if alt_path else False
+                
+                print(f"[DEBUG] File check - Original path '{supabase_file_path}': {'Found' if file_exists else 'Not found'}")
+                if alt_path:
+                    print(f"[DEBUG] File check - Alternative path '{alt_path}': {'Found' if alt_exists else 'Not found'}")
             except Exception as list_error:
-                print(f"Error listing files in bucket: {str(list_error)}")
-                print("Continuing with download attempt anyway...")
-              # Attempt file download
-            print(f"Attempting to download with original path: '{supabase_file_path}'")
+                print(f"[DEBUG] Error listing files in bucket: {str(list_error)}")
+                print("[DEBUG] Continuing with download attempt anyway...")
+                
+            # Attempt file download
+            print(f"[DEBUG] Attempting to download with original path: '{supabase_file_path}'")
             try:
                 # First try with the original path
                 response = supabase_client.storage.from_("files").download(supabase_file_path)
-                print(f"✓ Download successful with original path")
+                print(f"[DEBUG] ✓ Download successful with original path")
             except Exception as orig_error:
-                print(f"First download attempt failed: {str(orig_error)}")
-                
-                # If that fails, try with user_id/file_id format
+                print(f"[DEBUG] First download attempt failed: {str(orig_error)}")
+                print(f"[DEBUG] Error type: {type(orig_error).__name__}")
+                  # If that fails, try with user_id/file_id format
                 if file_id and user_id:
                     alternative_path = f"{user_id}/{file_id}"
-                    print(f"Trying alternative path format: '{alternative_path}'")
+                    print(f"[DEBUG] Trying alternative path format: '{alternative_path}'")
                     try:
                         response = supabase_client.storage.from_("files").download(alternative_path)
-                        print(f"✓ Download successful with alternative path: user_id/file_id")
+                        print(f"[DEBUG] ✓ Download successful with alternative path: user_id/file_id")
                     except Exception as alt_error:
-                        print(f"Alternative path also failed: {str(alt_error)}")
-                        raise Exception(f"Failed to download file with both original path '{supabase_file_path}' and alternative path '{alternative_path}'")
+                        print(f"[DEBUG] Alternative path also failed: {str(alt_error)}")
+                        print(f"[DEBUG] Error type: {type(alt_error).__name__}")
+                        
+                        # Try one more attempt with just the file_id
+                        print(f"[DEBUG] Last attempt: trying with just file_id '{file_id}'")
+                        try:
+                            response = supabase_client.storage.from_("files").download(file_id)
+                            print(f"[DEBUG] ✓ Download successful with file_id only")
+                        except Exception as last_error:
+                            print(f"[DEBUG] All download attempts failed. Details:")
+                            print(f"[DEBUG] - Original path error: {str(orig_error)}")
+                            print(f"[DEBUG] - Alternative path error: {str(alt_error)}")
+                            print(f"[DEBUG] - File ID only error: {str(last_error)}")
+                            raise Exception(f"Failed to download file with all path formats. See logs for details.")
                 else:
-                    print("Cannot try alternative path: missing user_id or file_id")
+                    print("[DEBUG] Cannot try alternative path: missing user_id or file_id")
                     raise orig_error
             
             if not response:
@@ -1341,3 +1374,136 @@ async def delete_file(file_id: str, token: str = Depends(verify_token)):
             status_code=500,
             detail=f"Unexpected error deleting file: {str(e)}"
         )
+
+@app.get("/debug/supabase")
+async def debug_supabase(
+    request: Request, 
+    file_id: Optional[str] = None,
+    file_path: Optional[str] = None,
+    user_id: Optional[str] = None
+):
+    """
+    Debug endpoint to test Supabase connectivity and file operations.
+    
+    This endpoint will:
+    1. Check Supabase authentication status
+    2. List files in the storage bucket
+    3. Try to download a specific file if file_id is provided
+    """
+    global supabase_client
+    
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.replace("Bearer ", "")
+    
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "supabase_client_exists": supabase_client is not None,
+        "auth_header_present": auth_header is not None,
+        "token_present": token is not None,
+        "environment_variables": {
+            "SUPABASE_URL": os.environ.get("SUPABASE_URL", "Not set"),
+            "SUPABASE_ANON_KEY": "Present" if os.environ.get("SUPABASE_ANON_KEY") else "Not set",
+            "SUPABASE_JWT_SECRET": "Present" if os.environ.get("SUPABASE_JWT_SECRET") else "Not set",
+            "LLAMAINDEX_API_KEY": "Present" if os.environ.get("LLAMAINDEX_API_KEY") else "Not set"
+        },
+        "file_operations": {}
+    }
+    
+    if not supabase_client:
+        try:
+            # Re-initialize Supabase client
+            supabase_url = os.environ.get("SUPABASE_URL")
+            supabase_key = os.environ.get("SUPABASE_ANON_KEY")
+            if supabase_url and supabase_key:
+                supabase_client = create_client(supabase_url, supabase_key)
+                results["supabase_client_init"] = "Success"
+            else:
+                results["supabase_client_init"] = "Failed - missing credentials"
+        except Exception as e:
+            results["supabase_client_init"] = f"Error: {str(e)}"
+    
+    # Authenticate with the provided token if available
+    if token and supabase_client:
+        try:
+            supabase_client.auth.set_session(token)
+            results["auth_set_session"] = "Token set"
+            
+            # Try to get user info
+            try:
+                user = supabase_client.auth.get_user()
+                results["auth_status"] = "Authenticated"
+                results["user_id"] = user.user.id if user and user.user else "Unknown"
+            except Exception as auth_err:
+                results["auth_status"] = f"Error: {str(auth_err)}"
+        except Exception as e:
+            results["auth_set_session"] = f"Error: {str(e)}"
+    
+    # List files in the bucket
+    if supabase_client:
+        try:
+            files_in_bucket = supabase_client.storage.from_("files").list()
+            results["storage_list"] = {
+                "status": "Success",
+                "count": len(files_in_bucket),
+                "examples": [f["name"] for f in files_in_bucket[:5]] if files_in_bucket else []
+            }
+            
+            # Check if the specified file exists
+            if file_path:
+                results["file_operations"]["path_check"] = {
+                    "file_path": file_path,
+                    "exists": any(f["name"] == file_path for f in files_in_bucket)
+                }
+                
+            # Check alternate path format
+            if user_id and file_id:
+                alt_path = f"{user_id}/{file_id}"
+                results["file_operations"]["alt_path_check"] = {
+                    "alt_path": alt_path,
+                    "exists": any(f["name"] == alt_path for f in files_in_bucket)
+                }
+        except Exception as list_err:
+            results["storage_list"] = {
+                "status": f"Error: {str(list_err)}",
+                "error_type": type(list_err).__name__
+            }
+    
+    # Try to download a specific file if requested
+    if file_id and supabase_client:
+        # Try various path formats
+        paths_to_try = []
+        
+        # Start with the provided path if given
+        if file_path:
+            paths_to_try.append(("provided_path", file_path))
+        
+        # Try user_id/file_id format
+        if user_id:
+            paths_to_try.append(("user_id_file_id", f"{user_id}/{file_id}"))
+        
+        # Try just the file_id
+        paths_to_try.append(("file_id_only", file_id))
+        
+        results["file_operations"]["download_attempts"] = {}
+        
+        for path_type, path in paths_to_try:
+            try:
+                response = supabase_client.storage.from_("files").download(path)
+                results["file_operations"]["download_attempts"][path_type] = {
+                    "path": path,
+                    "status": "Success",
+                    "size": len(response) if response else 0
+                }
+                # Only try until we succeed
+                break
+            except Exception as e:
+                results["file_operations"]["download_attempts"][path_type] = {
+                    "path": path,
+                    "status": f"Error: {str(e)}",
+                    "error_type": type(e).__name__
+                }
+    
+    return results
