@@ -25,6 +25,10 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
+# Define storage bucket name from environment variables with fallback to "files"
+STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME", "files")
+print(f"Using storage bucket name: {STORAGE_BUCKET_NAME}")
+
 # Import for vector store
 import pinecone
 # Flexible import path for PineconeVectorStore

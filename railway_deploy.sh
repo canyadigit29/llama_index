@@ -13,11 +13,39 @@ echo "==============================================="
 # Force port to 8000 regardless of environment
 export PORT=8000
 
+# Run port availability check
+echo "Running port availability check..."
+python backend/port_config.py
+
 # Print diagnostic information
 echo "Current environment:"
 echo "- PORT: $PORT"
 echo "- PWD: $(pwd)"
 echo "- Directory contents: $(ls -la)"
+
+# Check if port 8000 is already in use
+echo "---------------------------------------------"
+echo "CHECKING PORT AVAILABILITY"
+echo "---------------------------------------------"
+if command -v nc &> /dev/null; then
+  if nc -z localhost 8000 &> /dev/null; then
+    echo "CRITICAL ERROR: Port 8000 is already in use by another process!"
+    echo "This will prevent Railway from routing traffic correctly"
+    echo "Attempting to identify the process using port 8000:"
+    if command -v lsof &> /dev/null; then
+      lsof -i :8000
+    elif command -v fuser &> /dev/null; then
+      fuser 8000/tcp
+    else
+      echo "Cannot identify process. Try manually stopping services on port 8000"
+    fi
+    # Do not exit - Railway will retry, and we want to provide diagnostics in logs
+  else
+    echo "✓ Port 8000 is available"
+  fi
+else
+  echo "Cannot check port availability (nc command not found)"
+fi
 
 # Port diagnostics
 echo "---------------------------------------------"

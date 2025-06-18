@@ -58,3 +58,25 @@ The key requirements for a successful Railway deployment are:
 3. The application must start within the healthcheck timeout (100s)
 
 Our modified setup ensures all these requirements are met.
+
+## Environment Variables
+
+For successful deployment, set the following environment variables in Railway:
+
+### Required Variables
+- `PORT=8000` - Always set this to 8000
+- `OPENAI_API_KEY` - Your OpenAI API key
+- `PINECONE_API_KEY` - Your Pinecone API key
+- `PINECONE_ENVIRONMENT` - Your Pinecone environment
+- `PINECONE_INDEX_NAME` - Your Pinecone index name
+- `SUPABASE_URL` - Your Supabase URL
+- `SUPABASE_ANON_KEY` - Your Supabase anonymous key
+- `SUPABASE_SERVICE_ROLE_KEY` - Your Supabase service role key
+- `SUPABASE_JWT_SECRET` - Your Supabase JWT secret
+- `EMBEDDING_MODEL` - Set to "text-embedding-3-large" or your preferred model
+- `EMBEDDING_DIMENSIONS` - Set to 3072 for text-embedding-3-large
+
+### Optional Variables
+- `SUPABASE_STORAGE_BUCKET` - Storage bucket name (default: "files")
+- `DEBUG` - Set to "true" to enable verbose logging
+- `ENVIRONMENT` - Set to "production" for production deployments
