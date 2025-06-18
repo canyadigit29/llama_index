@@ -555,7 +555,7 @@ async def upload_file(
         
         # Upload file content to Supabase Storage
         storage_path = f"{doc_id}"
-        supabase_client.storage.from_("documents").upload(
+        supabase_client.storage.from_("files").upload(
             path=storage_path,
             file=file_content,
             file_options={"content_type": file.content_type}
@@ -835,7 +835,7 @@ async def load_documents_from_supabase(user_id: Optional[str] = None):
         for doc in db_documents:
             # Get file content from Supabase Storage
             try:
-                storage_response = supabase_client.storage.from_('documents').download(f"{doc['id']}")
+                storage_response = supabase_client.storage.from_('files').download(f"{doc['id']}")
                 content = storage_response.decode('utf-8')
                 
                 # Create LlamaIndex Document
@@ -893,7 +893,7 @@ async def delete_document(document_id: str, token: str = Depends(verify_token)):
     
     try:
         # Delete from Supabase Storage first
-        supabase_client.storage.from_("documents").remove([document_id])
+        supabase_client.storage.from_("files").remove([document_id])
         
         # Then delete metadata from documents table
         supabase_client.table("documents").delete().eq("id", document_id).execute()
@@ -994,20 +994,18 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             raise HTTPException(
                 status_code=413, 
                 detail=f"File size ({file_size} bytes) exceeds maximum allowed size of {max_size_bytes} bytes (30MB)"
-            )
-        
+            )        
         print(f"Processing file {file_name} (ID: {file_id}) from Supabase path: {supabase_file_path}")
-          # Download the file from Supabase storage
+        
+        # Download the file from Supabase storage
         try:
             print(f"Attempting to download file from Supabase...")
             print(f"Bucket: 'files', Path: '{supabase_file_path}'")
-            
             # Check if storage API is accessible
             try:
                 buckets = supabase_client.storage.list_buckets()
                 print(f"Available storage buckets: {[b['name'] for b in buckets]}")
-                
-                # Check if 'files' bucket exists
+                # Check if 'files' bucket exists (this is the bucket used by frontend)
                 if not any(b['name'] == 'files' for b in buckets):
                     print("WARNING: 'files' bucket not found in Supabase storage")
                     print("Available buckets:", [b['name'] for b in buckets])
