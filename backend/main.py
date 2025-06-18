@@ -356,9 +356,7 @@ def load_index():
                     print(f"Failed to access storage buckets: {storage_error}")
                     if "permission" in str(storage_error).lower() or "access" in str(storage_error).lower():
                         print("STORAGE ERROR: Likely permissions issue with storage buckets")
-                        print("Verify RLS policies for storage are correctly set up")
-                
-                # Check if llama_index_documents table exists, create if needed
+                        print("Verify RLS policies for storage are correctly set up")                # Check if llama_index_documents table exists
                 try:
                     # Try to query the table - this will fail if it doesn't exist
                     supabase_client.table("llama_index_documents").select("id").limit(1).execute()
@@ -366,7 +364,8 @@ def load_index():
                 except Exception as table_error:
                     print(f"'llama_index_documents' table check failed: {table_error}")
                     if "not found" in str(table_error).lower():
-                        print("WARNING: 'llama_index_documents' table not found. Please run the migration script.")
+                        print("WARNING: 'llama_index_documents' table not found.")
+                        print("Please apply the migration from: supabase/migrations/20250618000000_add_llama_index_documents.sql")
             except Exception as e:
                 print(f"Failed to initialize Supabase client: {e}")
                 # Check for common errors and provide helpful messages
@@ -1295,14 +1294,17 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                         status_code=500,
                         detail=f"Error indexing to Pinecone: {str(pinecone_error)}"
                     )
-            
-            # Store record in Supabase
+              # Store record in Supabase
             print("Recording indexed document in Supabase...")
             try:
+                # Enhanced record with more tracking information
                 response = supabase_client.table("llama_index_documents").insert({
                     "supabase_file_id": file_id,
                     "processed": True,
-                    "metadata": metadata
+                    "metadata": metadata,
+                    "chunk_count": len(nodes),
+                    "embedding_model": EMBEDDING_MODEL,
+                    "vector_store": "pinecone"
                 }).execute()
                 print("✓ Successfully recorded document in Supabase")
             except Exception as supabase_error:

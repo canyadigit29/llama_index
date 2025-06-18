@@ -115,6 +115,7 @@ The following diagnostic tools are available:
 - `test_railway_connectivity.py`: Tests Railway endpoint accessibility
 - `test_server.py`: Minimal server for Railway healthchecks
 - `check_storage_bucket_config.py`: Confirms storage bucket hardcoding
+- `llama_index_documents_diagnostic.py`: Validates document storage in Supabase and Pinecone
 
 ### Common Issues
 
