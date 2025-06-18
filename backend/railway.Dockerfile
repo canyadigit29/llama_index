@@ -19,6 +19,10 @@ RUN mkdir -p data
 # Copy application code
 COPY main.py .
 COPY Procfile .
+COPY docker_entrypoint.sh .
+
+# Make entrypoint script executable
+RUN chmod +x docker_entrypoint.sh
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -27,5 +31,5 @@ ENV PORT=8000
 # Expose the port - explicitly use 8000 to match Railway's routing
 EXPOSE 8000
 
-# Use explicit port 8000 in the command to ensure consistency
-CMD uvicorn main:app --host 0.0.0.0 --port 8000
+# Use our entrypoint script to ensure we always use port 8000
+CMD ["./docker_entrypoint.sh"]
