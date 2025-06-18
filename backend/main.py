@@ -913,27 +913,76 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
     
     Authentication is required via API key or development mode.
     """
+    print("==== /process endpoint called ====")
+    print(f"Authentication token present: {bool(token)}")
+    
+    # Check authentication
     if not token:
+        print("ERROR: Authentication token missing")
         raise HTTPException(
             status_code=401, 
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"}
         )
+    
+    # Check service initialization
+    print("Checking services initialization...")
+    service_status = {}
+    
+    # Check Supabase
     if not supabase_client:
-        raise HTTPException(status_code=500, detail="Supabase client not initialized")
-        
+        print("ERROR: Supabase client not initialized")
+        service_status["supabase"] = "not connected"
+        if SUPABASE_URL and SUPABASE_KEY:
+            print(f"Supabase URL and key are set, but client initialization failed")
+        else:
+            print(f"Supabase URL or key missing: URL={bool(SUPABASE_URL)}, KEY={bool(SUPABASE_KEY)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Supabase client not initialized. Check connection and credentials."
+        )
+    else:
+        service_status["supabase"] = "connected"
+    
+    # Check Pinecone/vector index
     if not index:
-        raise HTTPException(status_code=500, detail="Vector index not initialized")
+        print("ERROR: Vector index not initialized")
+        service_status["pinecone"] = "not connected"
+        raise HTTPException(
+            status_code=500, 
+            detail="Vector index not initialized. Check Pinecone connection and index configuration."
+        )
+    else:
+        service_status["pinecone"] = "connected"
+    
+    print(f"Service status: {service_status}")
     
     try:
         # Parse the request body
-        data = await request.json()
+        print("Parsing request body...")
+        try:
+            data = await request.json()
+            print("Request body parsed successfully")
+        except Exception as e:
+            print(f"ERROR: Failed to parse request body: {str(e)}")
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid JSON in request body: {str(e)}"
+            )
+        
+        # Extract and validate parameters
         file_id = data.get("file_id")
         supabase_file_path = data.get("supabase_file_path")
         file_name = data.get("name", "Unknown")
         file_type = data.get("type", "text/plain")
         description = data.get("description", "")
         user_id = data.get("user_id")
+        
+        print(f"Processing request for file: {file_name}")
+        print(f"File ID: {file_id}")
+        print(f"File path in Supabase: {supabase_file_path}")
+        print(f"File type: {file_type}")
+        print(f"User ID: {user_id}")
         
         if not file_id or not supabase_file_path:
             raise HTTPException(status_code=400, detail="Missing required file information")
@@ -948,21 +997,69 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             )
         
         print(f"Processing file {file_name} (ID: {file_id}) from Supabase path: {supabase_file_path}")
-        
-        # Download the file from Supabase storage
+          # Download the file from Supabase storage
         try:
-            print(f"Attempting to download file from Supabase: {supabase_file_path}")
+            print(f"Attempting to download file from Supabase...")
+            print(f"Bucket: 'files', Path: '{supabase_file_path}'")
+            
+            # Check if storage API is accessible
+            try:
+                buckets = supabase_client.storage.list_buckets()
+                print(f"Available storage buckets: {[b['name'] for b in buckets]}")
+                
+                # Check if 'files' bucket exists
+                if not any(b['name'] == 'files' for b in buckets):
+                    print("WARNING: 'files' bucket not found in Supabase storage")
+                    print("Available buckets:", [b['name'] for b in buckets])
+            except Exception as bucket_error:
+                print(f"Error listing storage buckets: {str(bucket_error)}")
+                print("Continuing with download attempt anyway...")
+            
+            # Try to list files in the bucket
+            try:
+                files_in_bucket = supabase_client.storage.from_("files").list()
+                print(f"Files in bucket: {[f['name'] for f in files_in_bucket[:5]]}{'... and more' if len(files_in_bucket) > 5 else ''}")
+            except Exception as list_error:
+                print(f"Error listing files in bucket: {str(list_error)}")
+                print("Continuing with download attempt anyway...")
+            
+            # Attempt file download
             response = supabase_client.storage.from_("files").download(supabase_file_path)
+            
             if not response:
+                print("ERROR: Empty response from Supabase download")
                 raise Exception("Failed to download file from Supabase - empty response")
+                
             file_content = response
-            print(f"Successfully downloaded file, size: {len(file_content) if file_content else 'unknown'} bytes")
+            file_size = len(file_content) if file_content else 'unknown'
+            print(f"Successfully downloaded file, size: {file_size} bytes")
+            
+            # Validate file content
+            if file_size == 0:
+                print("WARNING: Downloaded file has zero bytes")
+            
         except Exception as e:
-            print(f"Error downloading file from Supabase: {str(e)}")
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Error retrieving file from Supabase: {str(e)}"
-            )
+            print(f"ERROR: Failed to download file from Supabase: {str(e)}")
+            
+            # Check for specific errors
+            error_message = str(e).lower()
+            if "not found" in error_message:
+                print("Likely cause: File does not exist in the specified path")
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"File not found in Supabase storage: {supabase_file_path}"
+                )
+            elif "permission" in error_message or "access" in error_message or "denied" in error_message:
+                print("Likely cause: Permission issues with Supabase storage")
+                raise HTTPException(
+                    status_code=403, 
+                    detail=f"Permission denied accessing file in Supabase storage. Check bucket policies and RLS."
+                )
+            else:
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Error retrieving file from Supabase: {str(e)}"
+                )
         
         # Create metadata for the document
         metadata = {
@@ -1056,8 +1153,7 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         
         # Split the document into chunks (nodes)
         nodes = splitter.get_nodes_from_documents([doc])
-        
-        # Insert the document into the index
+          # Insert the document into the index
         try:
             # Ensure each node has the file ID in its metadata for later deletion
             for node in nodes:
@@ -1066,35 +1162,75 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                 node.metadata["supabase_file_id"] = file_id
             
             # Insert the nodes into the index
-            index.insert_nodes(nodes)
+            print(f"Inserting {len(nodes)} nodes into Pinecone index...")
+            try:
+                index.insert_nodes(nodes)
+                print(f"✓ Successfully indexed {len(nodes)} chunks from file {file_name}")
+            except Exception as pinecone_error:
+                print(f"ERROR: Failed to insert nodes into Pinecone: {str(pinecone_error)}")
+                # Check for common Pinecone errors
+                error_message = str(pinecone_error).lower()
+                if "dimension" in error_message:
+                    print("Likely cause: Embedding dimension mismatch")
+                    print(f"Expected dimensions: {EMBEDDING_DIMENSIONS}")
+                    print(f"Make sure your Pinecone index is configured correctly")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Embedding dimension mismatch. Check that your Pinecone index has {EMBEDDING_DIMENSIONS} dimensions."
+                    )
+                elif "rate limit" in error_message or "too many requests" in error_message:
+                    print("Rate limit exceeded on Pinecone API")
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Pinecone rate limit exceeded. Please try again later."
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Error indexing to Pinecone: {str(pinecone_error)}"
+                    )
             
-            print(f"Successfully indexed {len(nodes)} chunks from file {file_name}")
-            # Store the mapping between Supabase file ID and the document in Pinecone
-            # This could be useful for updates/deletions later
-            supabase_client.table("llama_index_documents").insert({
-                "supabase_file_id": file_id,
-                "processed": True,
-                "metadata": metadata
-            }).execute()
+            # Store record in Supabase
+            print("Recording indexed document in Supabase...")
+            try:
+                response = supabase_client.table("llama_index_documents").insert({
+                    "supabase_file_id": file_id,
+                    "processed": True,
+                    "metadata": metadata
+                }).execute()
+                print("✓ Successfully recorded document in Supabase")
+            except Exception as supabase_error:
+                print(f"ERROR: Failed to record document in Supabase: {str(supabase_error)}")
+                print("WARNING: Document was indexed in Pinecone but record in Supabase failed")
+                # We don't want to fail the whole operation if just the record keeping failed
+                # The document is already searchable in Pinecone
             
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
         except Exception as e:
-            print(f"Error indexing document: {str(e)}")
+            print(f"ERROR: Failed during indexing process: {str(e)}")
             raise HTTPException(
                 status_code=500,
                 detail=f"Error indexing document: {str(e)}"
             )
         
+        print("==== Processing completed successfully ====")
         return {
             "success": True,
             "file_id": file_id,
+            "chunks_processed": len(nodes),
             "message": "File processed and indexed successfully."
         }
         
-    except HTTPException:
-        # Re-raise HTTP exceptions as they already have the right format
+    except HTTPException as http_ex:
+        # Log the error before re-raising
+        print(f"HTTP Exception in /process: {http_ex.status_code} - {http_ex.detail}")
         raise
     except Exception as e:
-        print(f"Unexpected error processing file: {str(e)}")
+        print(f"CRITICAL ERROR: Unexpected error in /process: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error processing file: {str(e)}"
