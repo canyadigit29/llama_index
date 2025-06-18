@@ -25,11 +25,16 @@ COPY backend .
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 
-# Expose the port (Railway will override this)
-EXPOSE ${PORT}
+# Expose port 8000 explicitly - this is what Railway expects
+EXPOSE 8000
 
-# Make startup script executable
+# Copy additional diagnostic files
+COPY railway_deploy.sh /app/
+COPY backend/test_server.py /app/
+
+# Make startup scripts executable
 RUN chmod +x start.sh
+RUN chmod +x /app/railway_deploy.sh
 
-# Use the startup script to handle environment variables
-CMD ["./start.sh"]
+# Use our comprehensive deployment script
+CMD ["/app/railway_deploy.sh"]
