@@ -1156,22 +1156,24 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         
         # Process the file based on its type
         file_text = ""
-        try:
-            # Decode the file content based on type
-            if isinstance(file_content, bytes):                # For text-based files, try to decode as UTF-8
+        try:            # Decode the file content based on type
+            if isinstance(file_content, bytes):
+                # For text-based files, try to decode as UTF-8
                 if file_type.startswith("text/") or file_type in [
                     "application/json", 
                     "application/xml",
                     "application/csv"
                 ]:
-                    file_text = file_content.decode('utf-8')                # Handle PDF files
+                    file_text = file_content.decode('utf-8')
+                # Handle PDF files
                 elif file_type == "application/pdf":
                     print("="*50)
                     print("PDF PROCESSING INITIATED")
                     print(f"File name: {file_name}")
                     print(f"Content size: {len(file_content)} bytes")
                     print("="*50)
-                      try:
+                    
+                    try:
                         # Use the separate PDF processor module
                         print("Importing PDF processor module...")
                         try:
@@ -1207,7 +1209,8 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                         print(f"ERROR: PDF processing failed: {str(pdf_err)}")
                         import traceback
                         print(f"TRACE: {traceback.format_exc()}")
-                          # Check if it's actually a PDF
+                        
+                        # Check if it's actually a PDF
                         if not file_content.startswith(b'%PDF'):
                             raise HTTPException(
                                 status_code=400,

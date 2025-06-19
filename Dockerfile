@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Add cache-busting argument 
-ARG CACHE_BUST=7
+ARG CACHE_BUST=8
 
 WORKDIR /app
 
