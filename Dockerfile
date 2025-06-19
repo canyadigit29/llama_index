@@ -31,12 +31,16 @@ EXPOSE 8000
 
 # Copy additional diagnostic files
 COPY railway_deploy.sh /app/
-COPY backend/test_server.py /app/
-COPY backend/healthcheck.py /app/
+# These files are already copied from the backend directory, so we don't need to copy them again
+# COPY backend/test_server.py /app/
+# COPY backend/healthcheck.py /app/
 
 # Make startup scripts executable
-RUN chmod +x start.sh
-RUN chmod +x /app/railway_deploy.sh
+RUN chmod +x /app/start.sh || echo "Warning: start.sh not found"
+RUN chmod +x /app/railway_deploy.sh || echo "Warning: railway_deploy.sh not found"
+
+# List files for debugging
+RUN ls -la /app/
 
 # Use our comprehensive deployment script
 CMD ["/app/railway_deploy.sh"]
