@@ -44,7 +44,7 @@ The following environment variables are required for the application to function
 - `SUPABASE_URL` - Supabase instance URL
 - `SUPABASE_ANON_KEY` - Supabase anonymous API key
 - `PINECONE_API_KEY` - Pinecone API key
-- `PINECONE_ENVIRONMENT` - Pinecone environment (e.g., "us-west1-gcp")
+- `PINECONE_ENVIRONMENT` - Pinecone environment (e.g., "us-east-1")
 - `OPENAI_API_KEY` - OpenAI API key
 
 #### Important

@@ -90,6 +90,13 @@ def check_env_vars() -> Tuple[List[str], List[str], List[str], List[str]]:
     if os.environ.get("RAILWAY_SERVICE_ID") and os.environ.get("PORT") != "8000":
         warnings.append(f"PORT is set to '{os.environ.get('PORT')}' but should be '8000' for Railway")
     
+    # Special check for Pinecone environment format
+    pinecone_env = os.environ.get("PINECONE_ENVIRONMENT")
+    if pinecone_env:
+        known_regions = ["us-east-1", "us-west-2", "gcp-starter", "asia-southeast1"]
+        if pinecone_env not in known_regions and "-" not in pinecone_env:
+            warnings.append(f"PINECONE_ENVIRONMENT value '{pinecone_env}' may be incorrect. Expected format like 'us-east-1'.")
+    
     return missing_critical, missing_important, missing_optional, warnings
 
 def main() -> int:

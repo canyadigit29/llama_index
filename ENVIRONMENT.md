@@ -18,7 +18,7 @@ The following environment variables are required for the application to function
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `PINECONE_API_KEY` | API key for Pinecone vector database | `12345-abcde-...` |
-| `PINECONE_ENVIRONMENT` | Pinecone environment | `us-west1-gcp` |
+| `PINECONE_ENVIRONMENT` | Pinecone environment | `us-east-1` |
 | `PINECONE_INDEX_NAME` | Name of your Pinecone index | `developer-quickstart-py` (default) |
 
 ### OpenAI Configuration

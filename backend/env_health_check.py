@@ -58,11 +58,10 @@ ENV_VARS = {
             "required": True,
             "validation": lambda x: len(x) > 20,
             "message": "Should be a valid Pinecone API key"
-        },
-        "PINECONE_ENVIRONMENT": {
+        },        "PINECONE_ENVIRONMENT": {
             "required": True,
-            "validation": lambda x: bool(x),
-            "message": "Should specify a Pinecone environment (e.g., 'us-west1-gcp')"
+            "validation": lambda x: bool(x) and (x in ["us-east-1", "us-west-2", "gcp-starter", "asia-southeast1"] or "-" in x),
+            "message": "Should specify a valid Pinecone environment (e.g., 'us-east-1' for AWS or 'gcp-starter' for GCP)"
         },
         "PINECONE_INDEX_NAME": {
             "required": True,
@@ -242,6 +241,12 @@ def check_pinecone_connectivity() -> Dict[str, Union[bool, str]]:
         result["message"] = "Missing Pinecone API key or environment"
         return result
     
+    # Validate environment format
+    known_regions = ["us-east-1", "us-west-2", "gcp-starter", "asia-southeast1"]
+    if environment not in known_regions and "-" not in environment:
+        result["message"] = f"Pinecone environment format seems invalid: '{environment}'. Expected formats include 'us-east-1', 'us-west-2', 'gcp-starter'."
+        return result
+    
     try:
         # Try to make a request to Pinecone
         headers = {
@@ -256,7 +261,7 @@ def check_pinecone_connectivity() -> Dict[str, Union[bool, str]]:
         
         if response.status_code == 200:
             result["success"] = True
-            result["message"] = "Successfully connected to Pinecone"
+            result["message"] = f"Successfully connected to Pinecone environment '{environment}'"
             
             # Check for the index
             try:
@@ -268,7 +273,9 @@ def check_pinecone_connectivity() -> Dict[str, Union[bool, str]]:
             except Exception:
                 result["message"] += ", but couldn't verify index existence"
         else:
-            result["message"] = f"Pinecone returned status code: {response.status_code}"
+            result["message"] = f"Pinecone returned status code: {response.status_code} for environment '{environment}'"
+    except requests.exceptions.ConnectionError:
+        result["message"] = f"Connection error - Unable to connect to Pinecone using environment: '{environment}'. Please verify this is the correct region format (e.g., 'us-east-1')."
     except Exception as e:
         result["message"] = f"Error connecting to Pinecone: {str(e)}"
     

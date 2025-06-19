@@ -29,7 +29,7 @@ REQUIRED_VARS = [
     
     # Pinecone Configuration
     {"name": "PINECONE_API_KEY", "description": "API key for Pinecone vector database", "example": "12345-abcde-..."},
-    {"name": "PINECONE_ENVIRONMENT", "description": "Pinecone environment (e.g., us-west1-gcp)", "example": "us-west1-gcp"},
+    {"name": "PINECONE_ENVIRONMENT", "description": "Pinecone environment (e.g., us-east-1 for AWS)", "example": "us-east-1"},
     {"name": "PINECONE_INDEX_NAME", "description": "Name of your Pinecone index", "example": "developer-quickstart-py"},
     
     # OpenAI Configuration
