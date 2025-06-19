@@ -21,6 +21,8 @@ The following environment variables are required for the application to function
 | `PINECONE_ENVIRONMENT` | Pinecone environment | `us-east-1` |
 | `PINECONE_INDEX_NAME` | Name of your Pinecone index | `developer-quickstart-py` (default) |
 
+> **Note on Pinecone Environment**: For AWS-hosted Pinecone instances, use the AWS region format (e.g., `us-east-1`, `us-west-2`). For GCP instances, use formats like `gcp-starter` or `asia-southeast1`. The application uses the environment to construct API endpoints in the format `https://controller.{environment}.pinecone.io/`.
+
 ### OpenAI Configuration
 | Variable | Description | Example |
 |----------|-------------|---------|

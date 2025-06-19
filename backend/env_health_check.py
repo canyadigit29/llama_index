@@ -248,7 +248,41 @@ def check_pinecone_connectivity() -> Dict[str, Union[bool, str]]:
         return result
     
     try:
-        # Try to make a request to Pinecone
+        # First try to use the new Pinecone client API (same as in main.py)
+        try:
+            # Dynamically import to avoid dependency issues
+            import importlib
+            pinecone_spec = importlib.util.find_spec("pinecone")
+            
+            if pinecone_spec:
+                pinecone = importlib.import_module("pinecone")
+                
+                # Check if the new API is available
+                if hasattr(pinecone, "Pinecone"):
+                    pc = pinecone.Pinecone(api_key=api_key)
+                    
+                    # Try to list indexes
+                    try:
+                        indices = pc.list_indexes().names()
+                        result["success"] = True
+                        result["message"] = f"Successfully connected to Pinecone environment '{environment}' using modern API"
+                        
+                        # Check if the specified index exists
+                        index_found = index_name in indices
+                        if not index_found:
+                            result["message"] += f", but index '{index_name}' was not found"
+                            # Don't mark as failure if index doesn't exist
+                            # The app will create it if needed
+                        
+                        return result
+                    except Exception as e:
+                        # Fall back to the legacy approach if this fails
+                        pass
+        except ImportError:
+            # Module not available, will fall back to the REST API approach
+            pass
+                    
+        # Fall back to the REST API approach
         headers = {
             "Api-Key": api_key,
             "Content-Type": "application/json"
@@ -261,7 +295,7 @@ def check_pinecone_connectivity() -> Dict[str, Union[bool, str]]:
         
         if response.status_code == 200:
             result["success"] = True
-            result["message"] = f"Successfully connected to Pinecone environment '{environment}'"
+            result["message"] = f"Successfully connected to Pinecone environment '{environment}' using REST API"
             
             # Check for the index
             try:
@@ -269,7 +303,7 @@ def check_pinecone_connectivity() -> Dict[str, Union[bool, str]]:
                 index_found = any(index.get("name") == index_name for index in indices)
                 if not index_found:
                     result["message"] += f", but index '{index_name}' was not found"
-                    result["success"] = False
+                    # Don't mark as failure if index doesn't exist
             except Exception:
                 result["message"] += ", but couldn't verify index existence"
         else:

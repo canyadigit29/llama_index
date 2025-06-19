@@ -36,6 +36,15 @@ else
     echo "Pre-flight check script not found, skipping..."
 fi
 
+# Run Pinecone-specific diagnostics if available
+if [ -f "backend/pinecone_diagnostics.py" ]; then
+    echo -e "\n===== PINECONE CONNECTIVITY DIAGNOSTICS ====="
+    echo "Running Pinecone diagnostic checks..."
+    python backend/pinecone_diagnostics.py
+    # Diagnostics are informational only, no exit code check
+    echo "Pinecone diagnostics complete."
+fi
+
 # Warn about critical issues from quick check
 if [ $QUICKCHECK_EXIT -ne 0 ]; then
     echo "⚠️ CRITICAL ENVIRONMENT ISSUES DETECTED - Application may not function correctly!"

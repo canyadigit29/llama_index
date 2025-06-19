@@ -101,7 +101,7 @@ For successful deployment, set the following environment variables in Railway:
 - `PORT=8000` - Always set this to 8000
 - `OPENAI_API_KEY` - Your OpenAI API key
 - `PINECONE_API_KEY` - Your Pinecone API key
-- `PINECONE_ENVIRONMENT` - Your Pinecone environment
+- `PINECONE_ENVIRONMENT` - Your Pinecone environment (use AWS region format like `us-east-1`)
 - `PINECONE_INDEX_NAME` - Your Pinecone index name
 - `SUPABASE_URL` - Your Supabase URL
 - `SUPABASE_ANON_KEY` - Your Supabase anonymous key
