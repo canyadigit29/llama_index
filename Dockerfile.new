@@ -1,0 +1,44 @@
+# Use an official Python runtime as a parent image
+FROM python:3.11-slim
+
+# Set a cache-busting argument to force fresh build
+ARG CACHE_BUST=$(date +%s)
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    netcat-openbsd \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY backend/requirements.txt ./
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir pinecone>=3.0.2 && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Create data directory for temp storage
+RUN mkdir -p data
+
+# Copy application code from backend directory
+COPY backend .
+
+# Copy railway deployment script
+COPY railway_deploy.sh ./
+
+# Make the scripts executable
+RUN chmod +x ./railway_deploy.sh
+RUN ls -la && chmod +x ./start.sh || echo "Warning: start.sh not found or not executable"
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8000
+
+# Expose port 8000 explicitly - this is what Railway expects
+EXPOSE 8000
+
+# Very simple startup to guarantee function
+CMD ["/bin/bash", "-c", "export PORT=8000 && ./railway_deploy.sh || python test_server.py"]
