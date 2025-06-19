@@ -4,7 +4,7 @@ dockerfilePath = "Dockerfile"
 watchPatterns = ["backend/**"]
 
 [deploy]
-startCommand = "./start.sh"
+startCommand = "./railway_deploy.sh"
 # Use a simple health check path that doesn't require external services
 healthcheckPath = "/health"
 healthcheckTimeout = 100

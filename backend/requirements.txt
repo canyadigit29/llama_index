@@ -1,7 +1,7 @@
 fastapi==0.110.0
 uvicorn==0.27.1
 llama-index-core==0.10.27
-pinecone-client>=2.2.4
+pinecone>=3.0.2
 llama-index-vector-stores-pinecone>=0.1.6
 llama-index-embeddings-openai>=0.1.5
 PyPDF2>=3.0.0,<4.0.0

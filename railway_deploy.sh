@@ -85,11 +85,22 @@ if [ -f "test_server.py" ]; then
   fi
 fi
 
+# Check Pinecone connectivity if diagnostics are available
+if [ -f "pinecone_diagnostics.py" ]; then
+  echo "---------------------------------------------"
+  echo "RUNNING PINECONE DIAGNOSTICS"
+  echo "---------------------------------------------"
+  python pinecone_diagnostics.py || echo "Pinecone diagnostics completed with warnings"
+fi
+
 # Start the main application
 echo "---------------------------------------------"
 echo "STARTING MAIN APPLICATION"
 echo "---------------------------------------------"
 echo "Starting main application on port 8000..."
+
+# Run environment health check first
+python env_health_check.py || echo "Continuing despite health check warnings"
 
 # Explicitly use port 8000 for the main application
 exec uvicorn main:app --host 0.0.0.0 --port 8000
