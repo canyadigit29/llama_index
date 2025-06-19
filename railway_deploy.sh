@@ -63,74 +63,12 @@ else
   echo "netstat not available"
 fi
 
-# Start the Railway healthcheck proxy first
+# Health check functionality removed
 echo "---------------------------------------------"
-echo "STARTING RAILWAY HEALTHCHECK PROXY"
+echo "HEALTH CHECK DISABLED"
 echo "---------------------------------------------"
-if [ -f "healthcheck.py" ]; then
-  echo "Starting Railway healthcheck proxy..."
-  python healthcheck.py &
-  HEALTHCHECK_PID=$!
-  echo "Healthcheck proxy started with PID: $HEALTHCHECK_PID"
-  sleep 2
-  
-  # Verify healthcheck is responding
-  if command -v curl &>/dev/null && curl -s http://localhost:8000/health > /dev/null; then
-    echo "✅ Healthcheck proxy is running successfully!"
-    echo "Railway should now be able to verify deployment health"
-    # We'll keep the app running so kill the proxy
-    kill $HEALTHCHECK_PID 2>/dev/null
-  else
-    echo "⚠️ Could not verify healthcheck proxy - continuing anyway"
-  fi
-  
-  # Run the new healthcheck debugger if available
-  if [ -f "healthcheck_debug.py" ]; then
-    echo "---------------------------------------------"
-    echo "RUNNING HEALTHCHECK DEBUGGER"
-    echo "---------------------------------------------"
-    echo "Starting healthcheck debugger to diagnose /health endpoint..."
-    
-    # Run the debugger in background so it doesn't block the script if it fails
-    python healthcheck_debug.py &
-    HEALTHCHECK_DEBUG_PID=$!
-    sleep 5
-    
-    # We don't need to kill this, it will exit itself after the checks
-    echo "Healthcheck debugging completed."
-  else
-    echo "Healthcheck debugger not found, skipping detailed /health endpoint diagnostics"
-  fi
-else
-  echo "Healthcheck proxy not found, trying test server instead"
-  
-  # Try to run the minimal test server first to verify port 8000 is accessible
-  if [ -f "test_server.py" ]; then
-    echo "---------------------------------------------"
-    echo "TRYING TEST SERVER FIRST"
-    echo "---------------------------------------------"
-    echo "Starting minimal test server on port 8000..."
-    
-    # Start test server in background and check if it works
-    python test_server.py &
-    TEST_SERVER_PID=$!
-    sleep 5
-    
-    # Check if test server is responding
-    if command -v curl &>/dev/null && curl -s http://localhost:8000/health > /dev/null; then
-      echo "✅ Test server is running successfully on port 8000"
-      echo "Continuing with test server to ensure Railway deployment succeeds"
-      
-      # Keep the test server running
-      wait $TEST_SERVER_PID
-      exit 0
-    else
-      echo "⚠️ Test server may have failed to start on port 8000 - continuing anyway"
-      # Kill the test server
-      kill $TEST_SERVER_PID 2>/dev/null
-    fi
-  fi
-fi
+echo "Health checks have been disabled per user request"
+# Test server functionality removed
 
 # Check Pinecone connectivity if diagnostics are available
 if [ -f "pinecone_diagnostics.py" ]; then
@@ -146,8 +84,12 @@ echo "STARTING MAIN APPLICATION"
 echo "---------------------------------------------"
 echo "Starting main application on port 8000..."
 
-# Run environment health check first
-python env_health_check.py || echo "Continuing despite health check warnings"
+# Health check server functionality removed
+echo "Health check servers have been disabled per user request"
+
+# Skip environment health check since health checks are disabled
+echo "Health checks disabled, skipping env_health_check.py"
 
 # Explicitly use port 8000 for the main application
+echo "Starting main application..."
 exec uvicorn main:app --host 0.0.0.0 --port 8000

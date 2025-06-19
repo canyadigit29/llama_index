@@ -5,9 +5,7 @@ watchPatterns = ["backend/**", "Dockerfile", "railway_deploy.sh", "*.toml", "*.s
 
 [deploy]
 startCommand = "./railway_deploy.sh"
-# Use a simple health check path that doesn't require external services
-healthcheckPath = "/health"
-healthcheckTimeout = 100
+# Healthcheck disabled temporarily
 restartPolicyType = "ON_FAILURE"
 
 [env]
