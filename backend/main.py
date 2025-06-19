@@ -911,9 +911,8 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         service_status["supabase"] = "connected"
     
     # Check Pinecone/vector index
-    if not index:
-        print("ERROR: Vector index not initialized")
-        service_status["pinecone"] = "not connected"
+    if not index:        print("ERROR: Vector index not initialized")
+        service_status["pinecone"] = "not connected"        
         raise HTTPException(
             status_code=500, 
             detail="Vector index not initialized. Check Pinecone connection and index configuration."
@@ -922,7 +921,8 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         service_status["pinecone"] = "connected"
     
     print(f"Service status: {service_status}")
-      try:
+    
+    try:
         # Parse the request body
         print("Parsing request body...")
         try:
