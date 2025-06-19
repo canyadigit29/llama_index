@@ -6,8 +6,8 @@ This file exists solely to trigger Railway builds when no other backend files ha
 If Railway reports "No changed files matched patterns: backend/**", make a simple edit to this file
 (like changing the version number below) and commit the change.
 
-Version: 1.0.1
-Last update: Removed health checks per user request
+Version: 1.0.2
+Last update: Enhanced PDF handling and error reporting
 """
 
 print("Railway build trigger file - This file helps ensure Railway detects changes in the backend directory")

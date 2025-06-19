@@ -2,7 +2,7 @@
 FROM python:3.11-slim
 
 # Add cache-busting argument 
-ARG CACHE_BUST=3
+ARG CACHE_BUST=4
 
 WORKDIR /app
 
@@ -17,7 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --root-user-action=ignore --no-cache-dir pinecone>=3.0.2 && \
-    pip install --root-user-action=ignore --no-cache-dir -r requirements.txt
+    pip install --root-user-action=ignore --no-cache-dir -r requirements.txt && \
+    # Install both PDF libraries to ensure at least one works
+    pip install --no-cache-dir pypdf PyPDF2
 
 # Create data directory for temp storage
 RUN mkdir -p data

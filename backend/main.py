@@ -922,8 +922,7 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         service_status["pinecone"] = "connected"
     
     print(f"Service status: {service_status}")
-    
-    try:
+      try:
         # Parse the request body
         print("Parsing request body...")
         try:
@@ -931,6 +930,8 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             print("Request body parsed successfully")
         except Exception as e:
             print(f"ERROR: Failed to parse request body: {str(e)}")
+            import traceback
+            print(f"TRACE: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=400, 
                 detail=f"Invalid JSON in request body: {str(e)}"
@@ -1145,44 +1146,29 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     "application/csv"
                 ]:
                     file_text = file_content.decode('utf-8')
-                # Handle PDF files
-                elif file_type == "application/pdf":
+                # Handle PDF files                elif file_type == "application/pdf":
                     try:
-                        # Import PDF processing libraries
-                        import tempfile
-                        from PyPDF2 import PdfReader
+                        # Use the separate PDF processor module
+                        from pdf_processor import extract_text_from_pdf
                         
-                        # Create a temporary file to save the PDF
-                        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
-                            temp_path = temp_file.name
-                            temp_file.write(file_content)
+                        # Process the PDF
+                        print("Processing PDF using pdf_processor module")
+                        file_text = extract_text_from_pdf(file_content)
+                        print(f"PDF processing successful ({len(file_text)} characters)")
                         
-                        # Extract text from PDF
-                        try:
-                            pdf_reader = PdfReader(temp_path)
-                            pdf_texts = []
-                            
-                            # Extract text from each page
-                            for page_num in range(len(pdf_reader.pages)):
-                                page = pdf_reader.pages[page_num]
-                                pdf_texts.append(page.extract_text())
-                            
-                            # Join all the pages together
-                            file_text = "\n\n".join(pdf_texts)
-                            
-                            # Clean up temp file
-                            os.unlink(temp_path)
-                        except Exception as pdf_err:
-                            print(f"Error extracting text from PDF: {str(pdf_err)}")
-                            raise HTTPException(
-                                status_code=500,
-                                detail=f"Error extracting text from PDF: {str(pdf_err)}"
-                            )
-                    except ImportError:
-                        print("PyPDF2 is not installed. Please install it to process PDF files.")
+                    except ImportError as import_err:
+                        print(f"ERROR: PDF library not available: {str(import_err)}")
                         raise HTTPException(
                             status_code=500,
-                            detail="PDF processing is not available. PyPDF2 is not installed."
+                            detail=f"PDF processing is not available: {str(import_err)}"
+                        )
+                    except Exception as pdf_err:
+                        print(f"ERROR: PDF processing failed: {str(pdf_err)}")
+                        import traceback
+                        print(f"TRACE: {traceback.format_exc()}")
+                        raise HTTPException(
+                            status_code=500,
+                            detail=f"Error processing PDF: {str(pdf_err)}"
                         )
                 else:
                     # For other binary files we don't yet support
@@ -1288,18 +1274,38 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             "chunks_processed": len(nodes),
             "message": "File processed and indexed successfully."
         }
-        
-    except HTTPException as http_ex:
+          except HTTPException as http_ex:
         # Log the error before re-raising
+        print("=" * 50)
         print(f"HTTP Exception in /process: {http_ex.status_code} - {http_ex.detail}")
+        print("=" * 50)
         raise
     except Exception as e:
+        print("=" * 50)
         print(f"CRITICAL ERROR: Unexpected error in /process: {str(e)}")
         import traceback
-        print(traceback.format_exc())
+        trace = traceback.format_exc()
+        print(trace)
+        print("=" * 50)
+        
+        # Try to categorize the error for more helpful messages
+        error_msg = str(e).lower()
+        detail = f"Unexpected error processing file: {str(e)}"
+        
+        if "pinecone" in error_msg:
+            detail = f"Error connecting to Pinecone vector database: {str(e)}"
+        elif "supabase" in error_msg:
+            detail = f"Error connecting to Supabase database: {str(e)}"
+        elif "openai" in error_msg or "embedding" in error_msg:
+            detail = f"Error generating embeddings with OpenAI: {str(e)}"
+        elif "pdf" in error_msg:
+            detail = f"Error processing PDF file: {str(e)}"
+        elif "memory" in error_msg or "out of memory" in error_msg:
+            detail = "File processing failed: Out of memory. The file may be too large."
+        
         raise HTTPException(
             status_code=500,
-            detail=f"Unexpected error processing file: {str(e)}"
+            detail=detail
         )
 
 @app.delete("/delete/{file_id}")
