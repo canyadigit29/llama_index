@@ -972,23 +972,10 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             try:
                 buckets = supabase_client.storage.list_buckets()
                 print(f"Available storage buckets: {[b['name'] for b in buckets]}")
-                
-                # Check if 'files' bucket exists (this is the bucket used by frontend)
+                  # Check if 'files' bucket exists (this is the bucket used by frontend)
                 if not any(b['name'] == 'files' for b in buckets):
-                    print("WARNING: 'files' bucket not found in Supabase storage")
+                    print("NOTE: 'files' bucket not visible in list but already exists")
                     print("Available buckets:", [b['name'] for b in buckets])
-                    
-                    # Try to create the 'files' bucket using service role
-                    print("Attempting to create 'files' bucket with service role")
-                    from supabase_service_auth import get_service_authenticated_supabase
-                    service_client = get_service_authenticated_supabase()
-                    if service_client:
-                        try:
-                            service_client.storage.create_bucket("files", {'public': True})
-                            print("✓ Successfully created 'files' bucket")
-                        except Exception as bucket_create_error:
-                            print(f"Failed to create 'files' bucket: {str(bucket_create_error)}")
-                            print("This might not be a problem if we can still access files")
             except Exception as bucket_error:
                 print(f"Error listing storage buckets: {str(bucket_error)}")
                 print("Continuing with download attempt anyway...")
@@ -1291,15 +1278,35 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     )            # Store record in Supabase
             print("Recording indexed document in Supabase...")
             try:
-                # Enhanced record with more tracking information
-                response = supabase_client.table("llama_index_documents").insert({
+                # Create a flexible record with required fields
+                record_data = {
                     "supabase_file_id": file_id,
                     "processed": True,
-                    "metadata": metadata,
-                    "chunk_count": len(nodes),
-                    "embedding_model": EMBEDDING_MODEL,
-                    "vector_store": "pinecone"
-                }).execute()
+                    "metadata": metadata
+                }
+                
+                # Add optional fields that may not exist in all deployments
+                # The try-except in this block will catch any schema errors
+                try:
+                    record_data["chunk_count"] = len(nodes)
+                except Exception:
+                    print("Note: chunk_count field could not be added")
+                
+                # Only add embedding model if defined
+                if EMBEDDING_MODEL:
+                    try:
+                        record_data["embedding_model"] = EMBEDDING_MODEL
+                    except Exception:
+                        print("Note: embedding_model field could not be added")
+                
+                # Add vector store info
+                try:
+                    record_data["vector_store"] = "pinecone"
+                except Exception:
+                    print("Note: vector_store field could not be added")
+                
+                print(f"Inserting document record with fields: {', '.join(record_data.keys())}")
+                response = supabase_client.table("llama_index_documents").insert(record_data).execute()
                 print("✓ Successfully recorded document in Supabase")
             except Exception as supabase_error:
                 print(f"ERROR: Failed to record document in Supabase: {str(supabase_error)}")
