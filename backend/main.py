@@ -55,6 +55,30 @@ except ImportError:
     JWT_AVAILABLE = False
     print("WARNING: PyJWT not installed. JWT verification will not work. Install with pip install pyjwt")
 
+# Import environment health check
+try:
+    from env_health_check import run_health_check, log_health_check_results, check_env_vars
+    ENV_HEALTH_CHECK_AVAILABLE = True
+    # Run environment health check at startup
+    print("Running environment health check at startup...")
+    health_report = run_health_check(verbose=True)
+    log_health_check_results(health_report)
+    if health_report["status"] == "unhealthy":
+        print("⚠️ WARNING: Environment health check found issues that may affect application functionality")
+        # Log specific issues for Railway logs
+        for service_name, service_status in health_report.get("connectivity", {}).items():
+            if not service_status.get("success", True):
+                print(f"❌ Service connectivity issue: {service_name} - {service_status.get('message', 'Unknown error')}")
+        
+        # Log environment variable issues
+        env_vars = health_report.get("environment_variables", {}).get("details", {})
+        for var_name, details in env_vars.items():
+            if details.get("status", "VALID") != "VALID" and details.get("required", False):
+                print(f"❌ Required variable issue: {var_name} - {details.get('status', 'Unknown status')}")
+except ImportError:
+    ENV_HEALTH_CHECK_AVAILABLE = False
+    print("WARNING: env_health_check.py not available. Health checks will be limited.")
+
 app = FastAPI(title="LlamaIndex API", 
               description="Backend API for LlamaIndex document ingestion and querying",
               version="1.0.0")
@@ -706,6 +730,36 @@ def root():
 @app.get("/health")
 def health_check():
     """Health check endpoint with detailed diagnostics for troubleshooting."""
+    # Run comprehensive health check if available
+    if ENV_HEALTH_CHECK_AVAILABLE:
+        # Run a fresh environment check to get the latest status
+        health_report = run_health_check(verbose=True)
+        
+        # Add Railway-specific information if available
+        railway_info = {
+            "railway_service_id": os.environ.get("RAILWAY_SERVICE_ID", "Not deployed on Railway"),
+            "railway_environment": os.environ.get("RAILWAY_ENVIRONMENT_NAME", "Unknown"),
+            "railway_service_name": os.environ.get("RAILWAY_SERVICE_NAME", "Unknown"),
+            "is_railway": bool(os.environ.get("RAILWAY_SERVICE_ID")),
+            "deployed_port": os.environ.get("PORT", "8000")
+        }
+        
+        # Return a comprehensive response with Railway integration
+        return {
+            "status": "healthy" if health_report["status"] == "healthy" else "unhealthy",
+            "message": "All systems operational" if health_report["status"] == "healthy" 
+                      else "Issues detected with environment configuration",
+            "timestamp": datetime.utcnow().isoformat(),
+            "railway": railway_info,
+            "details": health_report,
+            "critical_failures": [
+                f"{var}: {details['status']}" 
+                for var, details in health_report.get("environment_variables", {}).get("details", {}).items()
+                if details.get("status") != "VALID" and details.get("required", False) and details.get("severity", "") == "critical"
+            ]
+        }
+    
+    # Fallback to basic health check if comprehensive version is not available
     # Basic services status
     services_status = {
         "pinecone": bool(index) and "connected" or "not connected",

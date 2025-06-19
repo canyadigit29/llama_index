@@ -9,6 +9,7 @@ The LlamaIndex backend must run on port 8000 for successful deployment on Railwa
 1. **Port Mismatch**: Application would start on port 8080, but Railway expects port 8000
 2. **Healthcheck Failures**: The /health endpoint wasn't responding, causing deployment to fail
 3. **Dockerfile Selection**: Railway was using the root Dockerfile, not the backend one
+4. **Environment Configuration**: Missing or incorrect environment variables causing runtime errors
 
 ## Files Updated
 
@@ -16,6 +17,7 @@ The LlamaIndex backend must run on port 8000 for successful deployment on Railwa
 2. **railway_deploy.sh**: New deployment script with port diagnostics and a fallback test server
 3. **test_server.py**: Minimal FastAPI app that ensures the /health endpoint works
 4. **Port-related scripts**: All updated to force port 8000
+5. **Environment health check**: New comprehensive environment variable validation
 
 ## Troubleshooting Steps
 
@@ -26,20 +28,52 @@ If your deployment fails after these changes:
 3. **Ensure Railway configuration** has port 8000 specified
 4. **Check Railway's routing** settings
 
+## Environment Health Check
+
+The application now includes comprehensive environment health checks:
+
+1. **Startup Check**: Validates all required environment variables at startup
+2. **Health Endpoint**: `/health` now returns comprehensive configuration status
+3. **Monitoring**: New monitoring script can be run periodically to verify configuration
+
+### Required Environment Variables
+
+The following environment variables are required for the application to function properly:
+
+#### Essential (Critical)
+- `SUPABASE_URL` - Supabase instance URL
+- `SUPABASE_ANON_KEY` - Supabase anonymous API key
+- `PINECONE_API_KEY` - Pinecone API key
+- `PINECONE_ENVIRONMENT` - Pinecone environment (e.g., "us-west1-gcp")
+- `OPENAI_API_KEY` - OpenAI API key
+
+#### Important
+- `SUPABASE_JWT_SECRET` - JWT secret for verifying Supabase tokens
+- `LLAMAINDEX_API_KEY` - API key for authenticating with the backend
+- `PORT` - Must be set to 8000 for Railway deployment
+
+#### Optional (with defaults)
+- `PINECONE_INDEX_NAME` (default: "developer-quickstart-py")
+- `EMBEDDING_MODEL` (default: "text-embedding-3-large")
+- `EMBEDDING_DIMENSIONS` (default: "3072")
+- `ENVIRONMENT` (default: "production")
+
 ## Debugging
 
 The deployed application includes enhanced endpoints:
 
-- `/health` - Returns detailed port information
-- `/debug` - Shows full environment information
+- `/health` - Returns detailed environment health check information
+- `/debug` - Shows full environment information without exposing secrets
 
 ## Server Startup Order
 
 The deployment process now attempts these steps in order:
 
-1. Try the minimal test server to ensure port 8000 works
-2. If test server works, stick with it to pass healthchecks
-3. If test server fails, try the main application
+1. Run environment quick check to validate critical variables
+2. Run comprehensive pre-flight check if available
+3. Try the minimal test server to ensure port 8000 works
+4. If test server works, stick with it to pass healthchecks
+5. If test server fails, try the main application
 
 ## Manual Override
 
