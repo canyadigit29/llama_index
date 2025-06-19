@@ -1298,16 +1298,36 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                         record_data["embedding_model"] = EMBEDDING_MODEL
                     except Exception:
                         print("Note: embedding_model field could not be added")
-                
-                # Add vector store info
+                  # Add vector store info
                 try:
                     record_data["vector_store"] = "pinecone"
                 except Exception:
                     print("Note: vector_store field could not be added")
                 
                 print(f"Inserting document record with fields: {', '.join(record_data.keys())}")
-                response = supabase_client.table("llama_index_documents").insert(record_data).execute()
-                print("✓ Successfully recorded document in Supabase")
+                
+                # Try with regular client first
+                try:
+                    response = supabase_client.table("llama_index_documents").insert(record_data).execute()
+                    print("✓ Successfully recorded document in Supabase")
+                except Exception as reg_client_error:
+                    print(f"Regular client record insert failed: {str(reg_client_error)}")
+                    
+                    # Try with service role client if regular client fails
+                    print("Trying with service role client...")
+                    from supabase_service_auth import get_service_authenticated_supabase
+                    service_client = get_service_authenticated_supabase()
+                    
+                    if service_client:
+                        try:
+                            response = service_client.table("llama_index_documents").insert(record_data).execute()
+                            print("✓ Successfully recorded document in Supabase using service role client")
+                        except Exception as service_error:
+                            print(f"Service role client record insert also failed: {str(service_error)}")
+                            raise service_error
+                    else:
+                        print("Could not create service role client")
+                        raise reg_client_error
             except Exception as supabase_error:
                 print(f"ERROR: Failed to record document in Supabase: {str(supabase_error)}")
                 print("WARNING: Document was indexed in Pinecone but record in Supabase failed")
