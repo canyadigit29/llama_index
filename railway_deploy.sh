@@ -10,6 +10,11 @@ echo "==============================================="
 echo "RAILWAY DEPLOYMENT SCRIPT - PORT DIAGNOSTICS"
 echo "==============================================="
 
+# Make all scripts executable (with error handling)
+echo "Making scripts executable..."
+chmod +x /app/*.py || echo "Warning: Could not make all Python files executable"
+chmod +x /app/*.sh || echo "Warning: Could not make all shell scripts executable"
+
 # Force port to 8000 regardless of environment
 export PORT=8000
 
@@ -77,6 +82,24 @@ if [ -f "healthcheck.py" ]; then
     kill $HEALTHCHECK_PID 2>/dev/null
   else
     echo "⚠️ Could not verify healthcheck proxy - continuing anyway"
+  fi
+  
+  # Run the new healthcheck debugger if available
+  if [ -f "healthcheck_debug.py" ]; then
+    echo "---------------------------------------------"
+    echo "RUNNING HEALTHCHECK DEBUGGER"
+    echo "---------------------------------------------"
+    echo "Starting healthcheck debugger to diagnose /health endpoint..."
+    
+    # Run the debugger in background so it doesn't block the script if it fails
+    python healthcheck_debug.py &
+    HEALTHCHECK_DEBUG_PID=$!
+    sleep 5
+    
+    # We don't need to kill this, it will exit itself after the checks
+    echo "Healthcheck debugging completed."
+  else
+    echo "Healthcheck debugger not found, skipping detailed /health endpoint diagnostics"
   fi
 else
   echo "Healthcheck proxy not found, trying test server instead"

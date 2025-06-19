@@ -1,8 +1,8 @@
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
-# Add cache-busting argument
-ARG CACHE_BUST=1
+# Add cache-busting argument 
+ARG CACHE_BUST=2
 
 WORKDIR /app
 
@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 RUN mkdir -p data
 
 # Copy application code from backend directory
-COPY backend .
+COPY backend/ ./
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1

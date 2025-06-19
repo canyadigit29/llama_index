@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Healthcheck Setup for Railway Deployment
+Updated: Railway build trigger - Added timestamp to force rebuild
 
 This script ensures that the /health endpoint returns a 200 status even before
 the main application is fully initialized. This is critical for Railway's 

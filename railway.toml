@@ -1,7 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
-watchPatterns = ["backend/**"]
+watchPatterns = ["backend/**", "Dockerfile", "railway_deploy.sh", "*.toml", "*.sh", "requirements.txt", "*.py"]
 
 [deploy]
 startCommand = "./railway_deploy.sh"
