@@ -2,14 +2,16 @@
 FROM python:3.11-slim
 
 # Add cache-busting argument 
-ARG CACHE_BUST=6
+ARG CACHE_BUST=7
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Tesseract OCR and poppler-utils for PDF processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    tesseract-ocr \
+    poppler-utils \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -1144,12 +1144,12 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     status_code=500, 
                     detail=f"Error retrieving file from Supabase: {str(e)}"
                 )
-        
-        # Create metadata for the document
+          # Create metadata for the document
         metadata = {
             "supabase_file_id": file_id,
             "name": file_name,
-            "type": file_type,            "description": description,
+            "type": file_type,
+            "description": description,
             "user_id": user_id,
             "processed_at": datetime.utcnow().isoformat()
         }
@@ -1158,26 +1158,47 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         file_text = ""
         try:
             # Decode the file content based on type
-            if isinstance(file_content, bytes):
-                # For text-based files, try to decode as UTF-8
+            if isinstance(file_content, bytes):                # For text-based files, try to decode as UTF-8
                 if file_type.startswith("text/") or file_type in [
                     "application/json", 
                     "application/xml",
                     "application/csv"
                 ]:
-                    file_text = file_content.decode('utf-8')
-                # Handle PDF files                elif file_type == "application/pdf":
-                    try:
+                    file_text = file_content.decode('utf-8')                # Handle PDF files
+                elif file_type == "application/pdf":
+                    print("="*50)
+                    print("PDF PROCESSING INITIATED")
+                    print(f"File name: {file_name}")
+                    print(f"Content size: {len(file_content)} bytes")
+                    print("="*50)
+                      try:
                         # Use the separate PDF processor module
-                        from pdf_processor import extract_text_from_pdf
+                        print("Importing PDF processor module...")
+                        try:
+                            from pdf_processor import extract_text_with_ocr_fallback
+                            print("PDF processor module imported successfully")
+                        except ImportError as module_err:
+                            print(f"ERROR: Could not import pdf_processor module: {str(module_err)}")
+                            raise ImportError(f"Failed to import PDF processor: {str(module_err)}")
                         
-                        # Process the PDF
-                        print("Processing PDF using pdf_processor module")
-                        file_text = extract_text_from_pdf(file_content)
-                        print(f"PDF processing successful ({len(file_text)} characters)")
+                        # Process the PDF with OCR fallback
+                        print("Starting PDF processing with OCR fallback...")
+                        file_text, used_ocr = extract_text_with_ocr_fallback(file_content)
+                        print(f"PDF processing {'with OCR' if used_ocr else 'without OCR'} successful ({len(file_text)} characters)")
+                        
+                        # Make sure we actually got text
+                        if not file_text or len(file_text.strip()) == 0:
+                            print("WARNING: PDF processing produced empty text")
+                            if file_content.startswith(b'%PDF'):
+                                # It is a PDF but extraction failed
+                                print("File appears to be a valid PDF but all extraction methods failed")
+                                # Return a placeholder message
+                                file_text = f"[This PDF document could not be processed: {file_name}]"
                         
                     except ImportError as import_err:
                         print(f"ERROR: PDF library not available: {str(import_err)}")
+                        import traceback
+                        print(f"TRACE: {traceback.format_exc()}")
                         raise HTTPException(
                             status_code=500,
                             detail=f"PDF processing is not available: {str(import_err)}"
@@ -1186,10 +1207,17 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                         print(f"ERROR: PDF processing failed: {str(pdf_err)}")
                         import traceback
                         print(f"TRACE: {traceback.format_exc()}")
-                        raise HTTPException(
-                            status_code=500,
-                            detail=f"Error processing PDF: {str(pdf_err)}"
-                        )
+                          # Check if it's actually a PDF
+                        if not file_content.startswith(b'%PDF'):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"The file does not appear to be a valid PDF."
+                            )
+                        
+                        # The OCR should have already been attempted by extract_text_with_ocr_fallback
+                        # This is a fallback in case both standard extraction and OCR failed
+                        print("All PDF processing methods failed")
+                        file_text = f"[This PDF could not be processed: {file_name}]"
                 else:
                     # For other binary files we don't yet support
                     raise HTTPException(

@@ -6,8 +6,8 @@ This file exists solely to trigger Railway builds when no other backend files ha
 If Railway reports "No changed files matched patterns: backend/**", make a simple edit to this file
 (like changing the version number below) and commit the change.
 
-Version: 1.0.4
-Last update: Fixed Supabase auth token issue and improved bucket handling
+Version: 1.0.5
+Last update: Added OCR capabilities for scanned PDFs
 """
 
 print("Railway build trigger file - This file helps ensure Railway detects changes in the backend directory")

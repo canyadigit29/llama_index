@@ -14,3 +14,7 @@ python-dotenv==1.0.1
 tiktoken==0.5.2
 PyJWT>=2.6.0
 requests>=2.31.0
+# OCR processing dependencies
+pdf2image>=1.16.3
+pytesseract>=0.3.10
+Pillow>=9.0.0
