@@ -963,31 +963,51 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                 detail=f"File size ({file_size} bytes) exceeds maximum allowed size of {max_size_bytes} bytes (30MB)"
             )        
         print(f"Processing file {file_name} (ID: {file_id}) from Supabase path: {supabase_file_path}")
-        
-        # Download the file from Supabase storage
+          # Download the file from Supabase storage
         try:
             print(f"Attempting to download file from Supabase...")
             print(f"Bucket: 'files', Path: '{supabase_file_path}'")
+            
             # Check if storage API is accessible
             try:
                 buckets = supabase_client.storage.list_buckets()
                 print(f"Available storage buckets: {[b['name'] for b in buckets]}")
+                
                 # Check if 'files' bucket exists (this is the bucket used by frontend)
                 if not any(b['name'] == 'files' for b in buckets):
                     print("WARNING: 'files' bucket not found in Supabase storage")
                     print("Available buckets:", [b['name'] for b in buckets])
+                    
+                    # Try to create the 'files' bucket using service role
+                    print("Attempting to create 'files' bucket with service role")
+                    from supabase_service_auth import get_service_authenticated_supabase
+                    service_client = get_service_authenticated_supabase()
+                    if service_client:
+                        try:
+                            service_client.storage.create_bucket("files", {'public': True})
+                            print("✓ Successfully created 'files' bucket")
+                        except Exception as bucket_create_error:
+                            print(f"Failed to create 'files' bucket: {str(bucket_create_error)}")
+                            print("This might not be a problem if we can still access files")
             except Exception as bucket_error:
                 print(f"Error listing storage buckets: {str(bucket_error)}")
                 print("Continuing with download attempt anyway...")
-              # Get Supabase auth status
+                  # Get Supabase auth status
             print(f"[DEBUG] Supabase auth status check...")
             try:
                 user = supabase_client.auth.get_user()
                 print(f"[DEBUG] Auth successful! User ID: {user.user.id if user and user.user else 'Unknown'}")
             except Exception as auth_err:
                 print(f"[DEBUG] Auth error: {str(auth_err)}")
-                  # Check JWT and headers
-            print(f"[DEBUG] JWT token status: {'Present' if supabase_client.auth._auth_token else 'Missing'}")
+                
+            # Check JWT and headers in a safer way
+            has_session = False
+            try:
+                has_session = hasattr(supabase_client.auth, 'session') and supabase_client.auth.session() is not None
+            except Exception as session_err:
+                print(f"[DEBUG] Error checking session: {str(session_err)}")
+                
+            print(f"[DEBUG] JWT token status: {'Present' if has_session else 'Missing'}")
             
             # Import service role helper
             from supabase_service_auth import get_service_authenticated_supabase
