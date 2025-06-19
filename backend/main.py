@@ -280,7 +280,7 @@ def load_index():
                     print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. Attempting to create it...")
                     pinecone.create_index(
                         name=INDEX_NAME,
-                        dimension=1536,  # default for OpenAI embeddings
+                        dimension=3072,  # For text-embedding-3-large model
                         metric="cosine",
                         pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
                     )
