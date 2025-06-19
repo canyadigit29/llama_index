@@ -1288,8 +1288,7 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     raise HTTPException(
                         status_code=500,
                         detail=f"Error indexing to Pinecone: {str(pinecone_error)}"
-                    )
-              # Store record in Supabase
+                    )            # Store record in Supabase
             print("Recording indexed document in Supabase...")
             try:
                 # Enhanced record with more tracking information
