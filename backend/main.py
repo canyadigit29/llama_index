@@ -909,10 +909,10 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         )
     else:
         service_status["supabase"] = "connected"
-    
-    # Check Pinecone/vector index
-    if not index:        print("ERROR: Vector index not initialized")
-        service_status["pinecone"] = "not connected"        
+      # Check Pinecone/vector index
+    if not index:
+        print("ERROR: Vector index not initialized")
+        service_status["pinecone"] = "not connected"
         raise HTTPException(
             status_code=500, 
             detail="Vector index not initialized. Check Pinecone connection and index configuration."
@@ -1272,9 +1272,9 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             "success": True,
             "file_id": file_id,
             "chunks_processed": len(nodes),
-            "message": "File processed and indexed successfully."
-        }
-          except HTTPException as http_ex:
+            "message": "File processed and indexed successfully."        }
+        
+    except HTTPException as http_ex:
         # Log the error before re-raising
         print("=" * 50)
         print(f"HTTP Exception in /process: {http_ex.status_code} - {http_ex.detail}")
