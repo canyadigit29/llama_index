@@ -1,6 +1,9 @@
 # Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
+# Add cache-busting argument
+ARG CACHE_BUST=1
+
 WORKDIR /app
 
 # Install system dependencies
