@@ -30,30 +30,69 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import vector store configuration
+# Import vector store configuration - ensure proper path
 try:
+    # Try local import first
     from vector_store_config import VectorStoreManager
     VECTOR_STORE_CONFIG_AVAILABLE = True
 except ImportError:
-    VECTOR_STORE_CONFIG_AVAILABLE = False
-    print("WARNING: vector_store_config.py not available, using built-in Pinecone setup")
+    try:
+        # Try with backend. prefix in case the app is started from the project root
+        from backend.vector_store_config import VectorStoreManager
+        VECTOR_STORE_CONFIG_AVAILABLE = True
+    except ImportError:
+        VECTOR_STORE_CONFIG_AVAILABLE = False
+        print("WARNING: vector_store_config.py not available, using built-in Pinecone setup")
 
 # Define storage bucket name from environment variables with fallback to "files"
 STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME", "files")
 print(f"Using storage bucket name: {STORAGE_BUCKET_NAME}")
 
-# Import for vector store
-import pinecone
-# Flexible import path for PineconeVectorStore
-try:
-    from llama_index.vector_stores.pinecone import PineconeVectorStore
-except ImportError:
-    try:
-        # Alternative import path
-        from llama_index.vector_stores.pinecone.base import PineconeVectorStore
-    except ImportError:
-        # Another possible path
-        from llama_index.indices.vector_store.providers.pinecone import PineconeVectorStore
+# Import for vector store now handled by VectorStoreManager
+# try:
+#     import pinecone
+#     # Record pinecone version for debugging
+#     if hasattr(pinecone, "__version__"):
+#         print(f"Pinecone client version: {pinecone.__version__}")
+# except ImportError as e:
+#     print(f"WARNING: Failed to import pinecone: {str(e)}")
+#     print("Make sure pinecone-client is installed: pip install pinecone-client>=3.0.0")
+#     # Don't raise - we'll handle the error later
+
+# Flexible import path for PineconeVectorStore now handled by VectorStoreManager
+# try:
+#     # Try the most likely import path first
+#     try:
+#         from llama_index.vector_stores.pinecone import PineconeVectorStore
+#         print("Imported PineconeVectorStore from llama_index.vector_stores.pinecone")
+#     except ImportError as e1:
+#         try:
+#             # Try alternate path used in some versions
+#             from llama_index.vector_stores.pinecone.base import PineconeVectorStore
+#             print("Imported PineconeVectorStore from llama_index.vector_stores.pinecone.base")
+#         except ImportError as e2:
+#             try:
+#                 # Try older path
+#                 from llama_index.indices.vector_store.providers.pinecone import PineconeVectorStore
+#                 print("Imported PineconeVectorStore from llama_index.indices.vector_store.providers.pinecone")
+#             except ImportError as e3:
+#                 # Try one more alternate path
+#                 try:
+#                     from llama_index.core.vector_stores.pinecone import PineconeVectorStore
+#                     print("Imported PineconeVectorStore from llama_index.core.vector_stores.pinecone")
+#                 except ImportError as e4:
+#                     # Give up and print detailed error information
+#                     print("=" * 60)
+#                     print("ERROR: Failed to import PineconeVectorStore from any known path")
+#                     print(f"Error 1: {str(e1)}")
+#                     print(f"Error 2: {str(e2)}")
+#                     print(f"Error 3: {str(e3)}")
+#                     print(f"Error 4: {str(e4)}")
+#                     print("=" * 60)
+#                     raise ImportError("Could not import PineconeVectorStore from any known path. Check your llama-index installation.")
+# except Exception as e:
+#     print(f"ERROR initializing Pinecone imports: {str(e)}")
+#     raise
 from fastapi.responses import JSONResponse
 
 # Supabase imports
@@ -115,10 +154,11 @@ app.add_middleware(
 )
 
 # Environment variables
-PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
-PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
-PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
-INDEX_NAME = PINECONE_INDEX_NAME  # For backward compatibility
+# Pinecone environment variables - now managed by VectorStoreManager
+# PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
+# PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
+# PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
+# INDEX_NAME = PINECONE_INDEX_NAME  # For backward compatibility
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 # OpenAI embedding configuration
@@ -190,12 +230,12 @@ def load_index():
     
     # First set up basic functionality without external dependencies
     print("Starting application initialization...")
-    
-    # Initialize external services with more robust error handling
-    try:        # Initialize Pinecone - using the VectorStoreManager if available
+      # Initialize external services with more robust error handling
+    try:
+        # Initialize vector store - using the VectorStoreManager if available
         try:
             if VECTOR_STORE_CONFIG_AVAILABLE:
-                print("Initializing Pinecone using VectorStoreManager")
+                print("Initializing vector store using VectorStoreManager")
                 # Create vector store manager
                 vector_store_manager = VectorStoreManager()
                 
@@ -204,122 +244,33 @@ def load_index():
                 
                 # Initialize vector store
                 vector_store = vector_store_manager.initialize_pinecone_vector_store()
-                
-                # Initialize index
+                  # Initialize index
                 index = vector_store_manager.initialize_vector_index()
-                
-                print("✅ Successfully initialized Pinecone and vector index using VectorStoreManager")
+                print("✅ Successfully initialized vector index using VectorStoreManager")
             else:
-                # Fall back to built-in approach
-                print("Using built-in Pinecone initialization approach")
+                # No fallback - require VectorStoreManager
+                print("ERROR: VectorStoreManager not available. Please ensure vector_store_config.py is present.")
+                print("Vector store integration requires VectorStoreManager to be available.")
+                raise ImportError("VectorStoreManager not available but required for vector store integration")
                 
-                # Check if Pinecone credentials are available
-                if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
-                    print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
-                    # Continue initialization - don't return early
+                # This legacy code has been completely removed and is now handled by VectorStoreManager
+                # If you need to see the original implementation, please refer to earlier versions
                 
-                # Initialize Pinecone with error handling
-                # Use the new Pinecone client initialization
-                try:
-                    # Try the new Pinecone client approach
-                    from pinecone import Pinecone, ServerlessSpec
-                    
-                    # Create Pinecone client
-                    pc = Pinecone(api_key=PINECONE_API_KEY)
-                    print("Initialized Pinecone client using new API")
-                    
-                    # Check if index exists
-                    existing_indexes = pc.list_indexes().names()
-                    if INDEX_NAME not in existing_indexes:
-                        print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually.")
-                        print("Attempting to create index with default settings - this may fail if your account doesn't support these settings.")
-                        
-                        try:
-                            # Try to create the index with serverless spec
-                            pc.create_index(
-                                name=INDEX_NAME,
-                                dimension=3072,  # for text-embedding-3-large
-                                metric="cosine",
-                                spec=ServerlessSpec(
-                                    cloud=PINECONE_ENVIRONMENT.split("-")[0],  # Extract cloud provider from environment
-                                    region=PINECONE_ENVIRONMENT.split("-", 1)[1] if "-" in PINECONE_ENVIRONMENT else "us-west-2"
-                                )
-                            )
-                            print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
-                        except Exception as spec_error:
-                            print(f"Serverless creation failed, trying standard creation: {spec_error}")
-                            # Try again without serverless spec (for older Pinecone accounts)
-                            try:
-                                pc.create_index(
-                                    name=INDEX_NAME,
-                                    dimension=3072,  # for text-embedding-3-large
-                                    metric="cosine"
-                                )
-                                print(f"Successfully created Pinecone index: {INDEX_NAME}")
-                            except Exception as std_error:
-                                print(f"Failed to auto-create Pinecone index: {str(std_error)}")
-                    
-                    # Connect to the index
-                    pinecone_index = pc.Index(INDEX_NAME)
-                    vector_store = PineconeVectorStore(pinecone_index)
-                    
-                    # Configure the embeddings explicitly
-                    embed_model = OpenAIEmbedding(
-                        api_key=OPENAI_API_KEY,
-                        model="text-embedding-3-large",  # Large model with 3072 dimensions
-                        dimensions=3072
-                    )
-                    
-                    # Update the global settings
-                    Settings.embed_model = embed_model
-                    
-                    # Initialize empty index with the embed model explicitly set
-                    try:
-                        # Try to create with empty nodes list to initialize structure
-                        index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
-                        print("Pinecone and Vector Index initialized successfully with OpenAI embeddings")
-                    except Exception as struct_error:
-                        print(f"Note: Could not initialize with empty nodes: {struct_error}")
-                        # Create a simple document as placeholder if needed
-                        placeholder_doc = Document(text="Placeholder document for initializing index.", id_="placeholder")
-                        index = VectorStoreIndex.from_documents([placeholder_doc], vector_store=vector_store, embed_model=embed_model)
-                        print("Initialized index with a placeholder document")
-                        
-                except (ImportError, AttributeError) as version_error:
-                    # Fall back to legacy approach if needed
-                    print(f"Using legacy Pinecone initialization: {version_error}")
-                    
-                    # Legacy initialization method (for older versions)
-                    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-                    
-                    if INDEX_NAME not in pinecone.list_indexes():
-                        print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. Attempting to create it...")
-                        pinecone.create_index(
-                            name=INDEX_NAME,
-                            dimension=3072,  # For text-embedding-3-large model
-                            metric="cosine",
-                            pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
-                        )
-                        
-                    # Connect to the index
-                    pinecone_index = pinecone.Index(INDEX_NAME)
-                    vector_store = PineconeVectorStore(pinecone_index)
-                    
-                    # Configure the embeddings explicitly
-                    embed_model = OpenAIEmbedding(
-                        api_key=OPENAI_API_KEY,
-                        model="text-embedding-3-large",  # Large model with 3072 dimensions
-                        dimensions=3072
-                    )
-                  # Update the global settings
+                # Configure the default embeddings for OpenAI
+                embed_model = OpenAIEmbedding(
+                    api_key=OPENAI_API_KEY,
+                    model="text-embedding-3-large",  # Large model with 3072 dimensions
+                    dimensions=3072
+                )
+                
+                # Update the global settings
                 Settings.embed_model = embed_model
-                
-                # Initialize empty index with the embed model explicitly set
+                  # Initialize empty index with the embed model explicitly set
                 # For a new/empty index, we need to create a minimal structure
                 try:
                     # Try to create with empty nodes list to initialize structure
                     index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
-                    print("Pinecone and Vector Index initialized successfully with OpenAI embeddings (legacy method)")
+                    print("Vector Index initialized successfully with OpenAI embeddings")
                 except Exception as struct_error:
                     print(f"Note: Could not initialize with empty nodes: {struct_error}")
                     # Create a simple document as placeholder if needed
@@ -513,30 +464,38 @@ async def admin_status(token: str = Depends(verify_token)):
             "timestamp": datetime.utcnow().isoformat()
         }
     }
-      # Check Pinecone status
-    status["services"]["pinecone"]["api_key_set"] = bool(PINECONE_API_KEY)
-    status["services"]["pinecone"]["environment_set"] = bool(PINECONE_ENVIRONMENT)
     
+    # Check Pinecone status
     try:
-        # Try new Pinecone client approach first
-        try:
-            from pinecone import Pinecone
-            pc = Pinecone(api_key=PINECONE_API_KEY)
-            pinecone_indexes = pc.list_indexes().names()
-            status["services"]["pinecone"]["connected"] = True
-            status["services"]["pinecone"]["indexes"] = pinecone_indexes
-            status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
-            status["services"]["pinecone"]["client_version"] = "new"
-        except (ImportError, AttributeError):
-            # Fall back to legacy approach
-            pinecone_indexes = pinecone.list_indexes()
-            status["services"]["pinecone"]["connected"] = True
-            status["services"]["pinecone"]["indexes"] = pinecone_indexes
-            status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
-            status["services"]["pinecone"]["client_version"] = "legacy"
+        # Use VectorStoreManager to check Pinecone status
+        if VECTOR_STORE_CONFIG_AVAILABLE:
+            try:
+                # Create instance of VectorStoreManager
+                vector_store_manager = VectorStoreManager()
+                # Use its configuration
+                status["services"]["pinecone"]["connected"] = True
+                status["services"]["pinecone"]["index_name"] = vector_store_manager.pinecone_index_name
+                status["services"]["pinecone"]["environment"] = vector_store_manager.pinecone_environment
+                status["services"]["pinecone"]["client_version"] = "managed by VectorStoreManager"
+                status["services"]["pinecone"]["api_key_set"] = True
+                status["services"]["pinecone"]["environment_set"] = True
+            except Exception as e:
+                status["services"]["pinecone"]["connected"] = False
+                status["services"]["pinecone"]["error"] = f"VectorStoreManager error: {str(e)}"
+                status["services"]["pinecone"]["api_key_set"] = False
+                status["services"]["pinecone"]["environment_set"] = False
+        else:
+            # VectorStoreManager not available - report error
+            status["services"]["pinecone"]["connected"] = False
+            status["services"]["pinecone"]["error"] = "VectorStoreManager not available"
+            status["services"]["pinecone"]["client_version"] = "unavailable"
+            status["services"]["pinecone"]["api_key_set"] = False
+            status["services"]["pinecone"]["environment_set"] = False
     except Exception as e:
         status["services"]["pinecone"]["connected"] = False
         status["services"]["pinecone"]["error"] = str(e)
+        status["services"]["pinecone"]["api_key_set"] = False
+        status["services"]["pinecone"]["environment_set"] = False
     
     # Check Supabase status
     status["services"]["supabase"]["url_set"] = bool(SUPABASE_URL)
@@ -645,9 +604,9 @@ async def reindex(user_id: Optional[str] = None, token: str = Depends(verify_tok
         # Load documents from Supabase
         documents = await load_documents_from_supabase(user_id)
         
-        if not documents:
-            return {"message": "No documents found to index."}
-              # Configure the embeddings explicitly
+        if not documents:            return {"message": "No documents found to index."}
+        
+        # Configure the embeddings explicitly
         embed_model = OpenAIEmbedding(
             api_key=OPENAI_API_KEY,
             model="text-embedding-3-large",  # Large model with 3072 dimensions
@@ -675,34 +634,49 @@ async def reindex(user_id: Optional[str] = None, token: str = Depends(verify_tok
 def delete_index():
     global index
     try:
-        # Try new Pinecone client approach first
-        try:
-            from pinecone import Pinecone
-            pc = Pinecone(api_key=PINECONE_API_KEY)
-            pc.delete_index(INDEX_NAME)
-            print(f"Deleted Pinecone index: {INDEX_NAME} using new API")
-        except (ImportError, AttributeError):
-            # Fall back to legacy approach
-            pinecone.delete_index(INDEX_NAME)
-            print(f"Deleted Pinecone index: {INDEX_NAME} using legacy API")
+        # Use VectorStoreManager to delete the index
+        if VECTOR_STORE_CONFIG_AVAILABLE:
+            # Create instance of VectorStoreManager
+            vector_store_manager = VectorStoreManager()
+            # Use its delete method if available
+            if hasattr(vector_store_manager, 'delete_index'):
+                vector_store_manager.delete_index()
+                print("Deleted Pinecone index using VectorStoreManager")
+            else:
+                print("VectorStoreManager does not support index deletion yet")
+        else:
+            print("VectorStoreManager not available. Cannot delete index.")
     except Exception as e:
         print(f"Error deleting index: {e}")
-    
+
 @app.get("/")
 def root():
     """Root endpoint for basic API information."""
     # This is the most fundamental endpoint and should never fail
     try:
+        # Check if VectorStoreManager is available to get Pinecone info
+        pinecone_info = {
+            "initialized": index is not None,
+            "embedding_model": EMBEDDING_MODEL,
+            "embedding_dimensions": EMBEDDING_DIMENSIONS
+        }
+        
+        # Use VectorStoreManager if available
+        if VECTOR_STORE_CONFIG_AVAILABLE:
+            try:
+                vector_store_manager = VectorStoreManager()
+                pinecone_info["index_name"] = vector_store_manager.pinecone_index_name
+                pinecone_info["environment"] = vector_store_manager.pinecone_environment
+                pinecone_info["api_key_set"] = True
+                pinecone_info["environment_set"] = True
+            except Exception as e:
+                pinecone_info["error"] = str(e)
+                pinecone_info["api_key_set"] = False
+                pinecone_info["environment_set"] = False
+        
         # Get service status with external dependencies
         services = {
-            "pinecone": {
-                "initialized": index is not None,
-                "api_key_set": bool(PINECONE_API_KEY),
-                "environment_set": bool(PINECONE_ENVIRONMENT),
-                "index_name": PINECONE_INDEX_NAME,
-                "embedding_model": EMBEDDING_MODEL,
-                "embedding_dimensions": EMBEDDING_DIMENSIONS
-            },
+            "pinecone": pinecone_info,
             "supabase": {
                 "initialized": supabase_client is not None,
                 "url_set": bool(SUPABASE_URL),
@@ -753,16 +727,19 @@ def health_check():
 @app.get("/list_indices")
 def list_indices():
     try:
-        # Try new Pinecone client approach first
-        try:
-            from pinecone import Pinecone
-            pc = Pinecone(api_key=PINECONE_API_KEY)
-            indices = pc.list_indexes().names()
-            return {"indices": indices}
-        except (ImportError, AttributeError):
-            # Fall back to legacy approach
-            indices = pinecone.list_indexes()
-            return {"indices": indices}
+        # Use VectorStoreManager to list indices
+        if VECTOR_STORE_CONFIG_AVAILABLE:
+            # Create instance of VectorStoreManager
+            vector_store_manager = VectorStoreManager()
+            # Use its list method if available
+            if hasattr(vector_store_manager, 'list_indexes'):
+                indices = vector_store_manager.list_indexes()
+                return {"indices": indices}
+            else:
+                # Return just the configured index name if listing not supported
+                return {"indices": [vector_store_manager.pinecone_index_name]}
+        else:
+            return {"error": "VectorStoreManager not available. Cannot list indices."}
     except Exception as e:
         return {"error": f"Failed to list indices: {str(e)}"}
 
@@ -1434,31 +1411,32 @@ async def delete_file(file_id: str, token: str = Depends(verify_token)):
                 
                 # Delete the metadata from our tracking table
                 supabase_client.table("llama_index_documents").delete().eq("supabase_file_id", file_id).execute()
-                print(f"Deleted tracking record for file {file_id} from llama_index_documents table")
-                  # Now delete the document from the vector store
+                print(f"Deleted tracking record for file {file_id} from llama_index_documents table")                # Now delete the document from the vector store
                 # The exact deletion method depends on the vector store implementation
                 try:
-                    if PINECONE_API_KEY and PINECONE_ENVIRONMENT and index:
-                        # Try to delete using the vector store directly first
+                    if index:
+                        # Try to delete using the vector store through LlamaIndex
                         try:
                             # For newer versions of LlamaIndex, we can delete by metadata filter through the index
                             index.delete(
                                 filter_dict={"metadata": {"supabase_file_id": file_id}}
                             )
-                            print(f"Deleted document vectors for file {file_id} from Pinecone via LlamaIndex")
+                            print(f"Deleted document vectors for file {file_id} from vector store via LlamaIndex")
                         except (AttributeError, NotImplementedError, Exception) as idx_err:
-                            print(f"Could not delete through LlamaIndex: {str(idx_err)}") 
-                            # Fall back to direct Pinecone deletion
-                            try:
-                                # For Pinecone, we can delete by metadata filter
-                                pinecone_index = pinecone.Index(INDEX_NAME)
-                                pinecone_index.delete(
-                                    filter={"supabase_file_id": file_id}
-                                )
-                                print(f"Deleted document vectors for file {file_id} directly from Pinecone")
-                            except Exception as pinecone_err:
-                                print(f"Error deleting directly from Pinecone: {str(pinecone_err)}")
-                                raise pinecone_err
+                            print(f"Could not delete through LlamaIndex: {str(idx_err)}")
+                            # Fall back to VectorStoreManager if available
+                            if VECTOR_STORE_CONFIG_AVAILABLE:
+                                try:
+                                    vector_store_manager = VectorStoreManager()
+                                    if hasattr(vector_store_manager, 'delete_by_metadata'):
+                                        vector_store_manager.delete_by_metadata({"supabase_file_id": file_id})
+                                        print(f"Deleted document vectors for file {file_id} via VectorStoreManager")
+                                    else:
+                                        print("VectorStoreManager does not support metadata-based deletion")
+                                except Exception as vs_err:
+                                    print(f"Error deleting via VectorStoreManager: {str(vs_err)}")
+                            else:
+                                print("Vector store deletion failed and VectorStoreManager not available")
                 except Exception as e:
                     print(f"Error deleting vectors from vector store: {str(e)}")
                     # Continue with the function even if vector deletion fails

@@ -22,6 +22,10 @@ export PORT=8000
 echo "Running port availability check..."
 python port_config.py 2>/dev/null || echo "Port config script not found, continuing..."
 
+# Run import test first to validate environment
+echo "Testing critical imports..."
+cd /app && python test_imports.py || echo "⚠️ Some imports failed - see warnings above"
+
 # Run Pinecone configuration validation
 echo "Validating Pinecone configuration for Railway..."
 cd /app/backend && python railway_pinecone_setup.py || echo "Pinecone validation completed with warnings"
@@ -96,4 +100,24 @@ echo "Health checks disabled, skipping env_health_check.py"
 
 # Explicitly use port 8000 for the main application
 echo "Starting main application..."
+
+# Enhanced debugging
+echo "---------------------------------------------"
+echo "PYTHON ENVIRONMENT DETAILS"
+echo "---------------------------------------------"
+python --version
+echo "Python executable: $(which python)"
+echo "Python path:"
+python -c "import sys; print('\n'.join(sys.path))"
+echo "Installed packages (selected):"
+pip list | grep -E 'pinecone|llama|fastapi|uvicorn'
+echo "---------------------------------------------"
+
+# Add both app root and backend to Python path
+export PYTHONPATH=${PYTHONPATH}:/app:/app/backend
+
+echo "Running application with port 8000 and PYTHONPATH=$PYTHONPATH"
+
+# Make sure we run from the correct directory
+cd /app/backend
 exec uvicorn main:app --host 0.0.0.0 --port 8000

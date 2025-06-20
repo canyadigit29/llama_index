@@ -18,13 +18,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first for better caching
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --root-user-action=ignore --no-cache-dir pinecone>=3.0.2 && \
+    # Install pinecone-client explicitly first to ensure correct version
+    pip install --root-user-action=ignore --no-cache-dir pinecone-client>=3.0.2 && \
+    # Install llama-index packages in the correct order
+    pip install --root-user-action=ignore --no-cache-dir \
+        llama-index-core>=0.10.27 \
+        llama-index-vector-stores-pinecone>=0.1.6 \
+        llama-index-embeddings-openai>=0.1.5 && \
+    # Install the rest of requirements
     pip install --root-user-action=ignore --no-cache-dir -r requirements.txt && \
     # Install both PDF libraries to ensure at least one works
     pip install --no-cache-dir pypdf PyPDF2
 
 # Create data directory for temp storage
 RUN mkdir -p data
+
+# Copy test_imports.py to root directory
+COPY test_imports.py /app/
 
 # Copy application code from backend directory
 COPY backend/ ./
