@@ -235,7 +235,12 @@ def load_index():
                     pinecone_index = pc.Index(INDEX_NAME)
                     print(f"DEBUG: Successfully connected to Pinecone index")
                     print(f"DEBUG: Index stats: {pinecone_index.describe_index_stats()}")
-                    vector_store = PineconeVectorStore(pinecone_index)# Configure the embeddings explicitly
+                    
+                    # Create the vector store - check if namespace is being used
+                    print(f"DEBUG: Creating PineconeVectorStore...")
+                    vector_store = PineconeVectorStore(pinecone_index)
+                    print(f"DEBUG: PineconeVectorStore created successfully")
+                    print(f"DEBUG: Vector store namespace: {getattr(vector_store, 'namespace', 'default/none')}")# Configure the embeddings explicitly
                     embed_model = OpenAIEmbedding(
                         api_key=OPENAI_API_KEY,
                         model="text-embedding-3-large",  # Large model with 3072 dimensions
@@ -826,54 +831,44 @@ async def load_documents_from_supabase(user_id: Optional[str] = None):
         print(f"Error fetching documents from Supabase: {e}")
         return []
 
-@app.get("/documents")
-async def list_documents(user_id: Optional[str] = None, token: str = Depends(verify_token)):
-    """List all documents in the Supabase storage"""
-    if not supabase_client:
-        raise HTTPException(status_code=500, detail="Supabase client not initialized")
+@app.get("/debug/pinecone-stats")
+async def debug_pinecone_stats(token: str = Depends(verify_token)):
+    """Debug endpoint to check Pinecone index statistics"""
+    if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
+        return {"error": "Pinecone not configured"}
     
     try:
-        # Query documents table
-        query = supabase_client.table("documents")
-        if user_id:
-            query = query.eq("user_id", user_id)
+        from pinecone import Pinecone
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        
+        # List all indexes
+        indexes = pc.list_indexes().names()
+        
+        # Get stats for our specific index
+        if INDEX_NAME in indexes:
+            pinecone_index = pc.Index(INDEX_NAME)
+            stats = pinecone_index.describe_index_stats()
             
-        response = query.select("*").execute()
-        documents = response.data
-        
-        # Format response
-        result = []
-        for doc in documents:
-            result.append({
-                "id": doc["id"],
-                "name": doc["name"],
-                "created_at": doc.get("created_at", ""),
-                "metadata": doc.get("metadata", {})
-            })
+            return {
+                "success": True,
+                "index_name": INDEX_NAME,
+                "all_indexes": indexes,
+                "index_stats": stats,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        else:
+            return {
+                "error": f"Index '{INDEX_NAME}' not found",
+                "available_indexes": indexes
+            }
             
-        return {"documents": result, "count": len(result)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching documents: {str(e)}")
-
-@app.delete("/documents/{document_id}")
-async def delete_document(document_id: str, token: str = Depends(verify_token)):
-    """Delete a document from Supabase and remove from the index"""
-    if not supabase_client:
-        raise HTTPException(status_code=500, detail="Supabase client not initialized")
-    
-    try:
-        # Delete from Supabase Storage first
-        supabase_client.storage.from_("files").remove([document_id])
-        
-        # Then delete metadata from documents table
-        supabase_client.table("documents").delete().eq("id", document_id).execute()
-        
-        # Note: The document will remain in the Pinecone index until reindexing
-        # For immediate removal, we would need document ID tracking in Pinecone
-        
-        return {"message": f"Document {document_id} deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting document: {str(e)}")
+        import traceback
+        return {
+            "error": f"Failed to get Pinecone stats: {str(e)}",
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
 
 @app.post("/process")
 async def process_file(request: Request, token: str = Depends(verify_token)):
@@ -1258,10 +1253,22 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             print(f"First node metadata: {nodes[0].metadata if nodes else 'No nodes'}")
             print(f"Embedding model: {EMBEDDING_MODEL}")
             print(f"Embedding dimensions: {EMBEDDING_DIMENSIONS}")
+            
             try:
                 index.insert_nodes(nodes)
                 print(f"✓ Successfully indexed {len(nodes)} chunks from file {file_name}")
                 print(f"✓ Pinecone index should now have {len(nodes)} new vectors")
+                
+                # Get Pinecone index stats to verify insertion
+                try:
+                    from pinecone import Pinecone
+                    pc = Pinecone(api_key=PINECONE_API_KEY)
+                    pinecone_index = pc.Index(INDEX_NAME)
+                    stats = pinecone_index.describe_index_stats()
+                    print(f"✓ Pinecone index stats after insertion: {stats}")
+                except Exception as stats_error:
+                    print(f"WARNING: Could not retrieve index stats: {str(stats_error)}")
+                    
             except Exception as pinecone_error:
                 print(f"ERROR: Failed to insert nodes into Pinecone: {str(pinecone_error)}")
                 print(f"ERROR: Exception type: {type(pinecone_error).__name__}")
@@ -1450,7 +1457,7 @@ async def delete_file(file_id: str, token: str = Depends(verify_token)):
                                 pinecone_index.delete(
                                     filter={"supabase_file_id": file_id}
                                 )
-                                print(f"Deleted document vectors for file {file_id} directly from Pinecone")
+                                print(f"Deleted Pinecone index: {INDEX_NAME} using legacy API")
                             except Exception as pinecone_err:
                                 print(f"Error deleting directly from Pinecone: {str(pinecone_err)}")
                                 raise pinecone_err
@@ -1614,3 +1621,58 @@ async def debug_supabase(
                 }
     
     return results
+
+@app.post("/debug/test-vector-insert")
+async def debug_test_vector_insert(token: str = Depends(verify_token)):
+    """Debug endpoint to test a simple vector insertion"""
+    if not index:
+        return {"error": "Vector index not initialized"}
+    
+    try:
+        # Create a simple test document
+        from llama_index.core import Document
+        test_doc = Document(
+            text="This is a test document for debugging Pinecone insertion.",
+            metadata={
+                "test_file_id": "debug-test-" + str(uuid.uuid4()),
+                "debug": True,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        
+        # Create nodes from the document
+        from llama_index.core.node_parser import SentenceSplitter
+        splitter = SentenceSplitter(chunk_size=512, chunk_overlap=50)
+        nodes = splitter.get_nodes_from_documents([test_doc])
+        
+        print(f"DEBUG: Created {len(nodes)} test nodes")
+        for i, node in enumerate(nodes):
+            print(f"DEBUG: Node {i} - ID: {node.node_id}, Text: {node.text[:100]}...")
+            print(f"DEBUG: Node {i} - Metadata: {node.metadata}")
+        
+        # Insert the test nodes
+        index.insert_nodes(nodes)
+        print(f"DEBUG: Successfully inserted {len(nodes)} test nodes")
+        
+        # Get updated stats
+        from pinecone import Pinecone
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        pinecone_index = pc.Index(INDEX_NAME)
+        stats_after = pinecone_index.describe_index_stats()
+        
+        return {
+            "success": True,
+            "test_nodes_created": len(nodes),
+            "test_node_ids": [node.node_id for node in nodes],
+            "index_stats_after": stats_after,
+            "message": "Test vector insertion completed"
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"DEBUG: Test vector insertion failed: {str(e)}")
+        print(f"DEBUG: Traceback: {traceback.format_exc()}")
+        return {
+            "error": f"Test vector insertion failed: {str(e)}",
+            "traceback": traceback.format_exc()
+        }
