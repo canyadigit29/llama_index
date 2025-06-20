@@ -255,12 +255,9 @@ def load_index():
                     print("AUTHENTICATION ERROR: Supabase rejected the provided credentials")
                     print("Verify that SUPABASE_ANON_KEY is correct")
                 supabase_client = None
-        else:
-            print("WARNING: Missing Supabase credentials. Document storage features will be unavailable.")
-            
-    except Exception as e:
-        print(f"Error during startup: {e}")
-        # The app will still start, but with limited functionality
+        except Exception as e:
+            print(f"Error during startup: {e}")
+            # The app will still start, but with limited functionality
 
 # Models for API requests/responses
 class QueryRequest(BaseModel):
@@ -341,7 +338,11 @@ async def query(request: QueryRequest, token: str = Depends(verify_token)):
 async def admin_status(token: str = Depends(verify_token)):
     status = {
         "services": {
-            "pinecone": {},
+            "pinecone": {
+                "api_key_set": bool(PINECONE_API_KEY),
+                "environment_set": bool(PINECONE_ENVIRONMENT),
+                # Optionally, add more diagnostics by querying the vector_store_config if needed
+            },
             "supabase": {},
         },
         "index": {},
@@ -350,30 +351,6 @@ async def admin_status(token: str = Depends(verify_token)):
             "timestamp": datetime.utcnow().isoformat()
         }
     }
-      # Check Pinecone status
-    status["services"]["pinecone"]["api_key_set"] = bool(PINECONE_API_KEY)
-    status["services"]["pinecone"]["environment_set"] = bool(PINECONE_ENVIRONMENT)
-    
-    try:
-        # Try new Pinecone client approach
-        try:
-            from pinecone import Pinecone
-            pc = Pinecone(api_key=PINECONE_API_KEY)
-            pinecone_indexes = pc.list_indexes().names()
-            status["services"]["pinecone"]["connected"] = True
-            status["services"]["pinecone"]["indexes"] = pinecone_indexes
-            status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
-            status["services"]["pinecone"]["client_version"] = "new"
-        except (ImportError, AttributeError):
-            # Fall back to legacy approach
-            pinecone_indexes = pinecone.list_indexes()
-            status["services"]["pinecone"]["connected"] = True
-            status["services"]["pinecone"]["indexes"] = pinecone_indexes
-            status["services"]["pinecone"]["index_exists"] = INDEX_NAME in pinecone_indexes
-            status["services"]["pinecone"]["client_version"] = "legacy"
-    except Exception as e:
-        status["services"]["pinecone"]["connected"] = False
-        status["services"]["pinecone"]["error"] = str(e)
     
     # Check Supabase status
     status["services"]["supabase"]["url_set"] = bool(SUPABASE_URL)
