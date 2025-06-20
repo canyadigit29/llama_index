@@ -201,7 +201,8 @@ def load_index():
                 if INDEX_NAME not in existing_indexes:
                     print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
                     print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
-                      try:
+                    
+                    try:
                         # Try to create the index with serverless spec
                         pc.create_index(
                             name=INDEX_NAME,
@@ -215,7 +216,8 @@ def load_index():
                         print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
                     except Exception as spec_error:
                         print(f"Serverless creation failed, trying standard creation: {spec_error}")
-                        # Try again without serverless spec (for older Pinecone accounts)                        try:
+                        # Try again without serverless spec (for older Pinecone accounts)
+                        try:
                             pc.create_index(
                                 name=INDEX_NAME,
                                 dimension=3072,  # For text-embedding-3-large model
@@ -225,7 +227,8 @@ def load_index():
                         except Exception as std_error:
                             print(f"Failed to auto-create Pinecone index: {str(std_error)}")
                             print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
-                  # Connect to the index
+                
+                # Connect to the index
                 try:
                     # Use the new API to get the index
                     print(f"DEBUG: Connecting to Pinecone index: {INDEX_NAME}")
