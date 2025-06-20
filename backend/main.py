@@ -2,6 +2,10 @@ from fastapi import FastAPI, Request, UploadFile, File, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from middleware import add_request_logger
+
+# VERSION: 2025-06-20 - Almost working version with OCR PDF processing
+# Fix for file not found issues in PDF upload implementation
+
 from llama_index.core import VectorStoreIndex, Document, Settings
 # Use the correct import path for SimpleDirectoryReader
 try:
