@@ -113,11 +113,27 @@ echo "Installed packages (selected):"
 pip list | grep -E 'pinecone|llama|fastapi|uvicorn'
 echo "---------------------------------------------"
 
-# Add both app root and backend to Python path
-export PYTHONPATH=${PYTHONPATH}:/app:/app/backend
+# Add app root to Python path - backend files are now in /app
+export PYTHONPATH=${PYTHONPATH}:/app
 
 echo "Running application with port 8000 and PYTHONPATH=$PYTHONPATH"
 
-# Make sure we run from the correct directory
-cd /app/backend
+# Check if directory structure is as expected
+if [ -d "/app/backend" ]; then
+  echo "Directory structure has backend/ subfolder - using /app/backend"
+  cd /app/backend
+else
+  echo "Using flat structure - backend files are in /app root"
+  cd /app
+fi
+
+# Run the validation script for Pinecone if it exists
+if [ -f "railway_pinecone_setup.py" ]; then
+  echo "Running Pinecone validation script"
+  python railway_pinecone_setup.py
+else
+  echo "Pinecone validation script not found - skipping"
+fi
+
+# Start the application
 exec uvicorn main:app --host 0.0.0.0 --port 8000
