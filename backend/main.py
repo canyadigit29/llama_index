@@ -29,19 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME", "files")
 print(f"Using storage bucket name: {STORAGE_BUCKET_NAME}")
 
-# Import for vector store
-import pinecone
-# Flexible import path for PineconeVectorStore
-try:
-    from llama_index.vector_stores.pinecone import PineconeVectorStore
-except ImportError:
-    try:
-        # Alternative import path
-        from llama_index.vector_stores.pinecone.base import PineconeVectorStore
-    except ImportError:
-        # Another possible path
-        from llama_index.indices.vector_store.providers.pinecone import PineconeVectorStore
-from fastapi.responses import JSONResponse
+# Import vector store configuration
+from vector_store_config import initialize_vector_store, get_vector_store_manager
 
 # Supabase imports
 from supabase import create_client, Client
@@ -101,14 +90,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Environment variables
+# Global vector store variables (initialized by vector_store_config)
+vector_store = None
+index = None
+embed_model = None
+
+# Environment variables (for backward compatibility with existing code)
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "maxgpt")
 INDEX_NAME = PINECONE_INDEX_NAME  # For backward compatibility
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
-# OpenAI embedding configuration
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-large")
 EMBEDDING_DIMENSIONS = int(os.environ.get("EMBEDDING_DIMENSIONS", "3072"))
 
@@ -169,202 +161,56 @@ async def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Dep
 # Initialize services and build index at startup
 @app.on_event("startup")
 def load_index():
-    global index, supabase_client
+    global index, vector_store, embed_model, supabase_client
     
     # Initialize variables with default values
     index = None
+    vector_store = None
+    embed_model = None
     supabase_client = None
     
-    # First set up basic functionality without external dependencies
     print("Starting application initialization...")
     
-    # Initialize external services with more robust error handling
+    # Initialize vector store using the configuration module
     try:
-        # Check if Pinecone credentials are available
-        if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
-            print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
-            # Continue initialization - don't return early
-              # Initialize Pinecone with error handling
+        print("🚀 Initializing vector store...")
+        index, vector_store, embed_model = initialize_vector_store()
+        print("✅ Vector store initialization completed successfully")
+    except Exception as e:
+        print(f"❌ Vector store initialization failed: {str(e)}")
+        index = None
+        vector_store = None
+        embed_model = None
+    
+    # Initialize Supabase client with error handling
+    if SUPABASE_URL and SUPABASE_KEY:
         try:
-            # Use the new Pinecone client initialization
+            # Initialize Supabase client with only the required parameters
+            # to avoid issues with unexpected keyword arguments like 'proxy'
             try:
-                # Try the new Pinecone client approach
-                from pinecone import Pinecone, ServerlessSpec
-                
-                # Create Pinecone client
-                pc = Pinecone(api_key=PINECONE_API_KEY)
-                print("Initialized Pinecone client using new API")
-                  # Check if index exists
-                existing_indexes = pc.list_indexes().names()
-                print(f"DEBUG: Available Pinecone indexes: {existing_indexes}")
-                print(f"DEBUG: Looking for index: {INDEX_NAME}")
-                if INDEX_NAME not in existing_indexes:
-                    print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
-                    print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
+                # First attempt: Basic initialization with just URL and key
+                supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            except TypeError as type_error:
+                if "got an unexpected keyword argument" in str(type_error):
+                    print(f"Adjusting Supabase client initialization due to: {type_error}")
+                    # Different versions of the library may expect different parameters
+                    # Try to import the specific version and adjust accordingly
+                    import sys
+                    print(f"Supabase library version: {sys.modules.get('supabase', None)}")
                     
-                    try:
-                        # Try to create the index with serverless spec
-                        pc.create_index(
-                            name=INDEX_NAME,
-                            dimension=3072,  # For text-embedding-3-large model
-                            metric="cosine",
-                            spec=ServerlessSpec(
-                                cloud=PINECONE_ENVIRONMENT.split("-")[0],  # Extract cloud provider from environment
-                                region=PINECONE_ENVIRONMENT.split("-", 1)[1] if "-" in PINECONE_ENVIRONMENT else "us-west-2"
-                            )
-                        )
-                        print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
-                    except Exception as spec_error:
-                        print(f"Serverless creation failed, trying standard creation: {spec_error}")
-                        # Try again without serverless spec (for older Pinecone accounts)
-                        try:
-                            pc.create_index(
-                                name=INDEX_NAME,
-                                dimension=3072,  # For text-embedding-3-large model
-                                metric="cosine"
-                            )
-                            print(f"Successfully created Pinecone index: {INDEX_NAME}")
-                        except Exception as std_error:
-                            print(f"Failed to auto-create Pinecone index: {str(std_error)}")
-                            print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
-                
-                # Connect to the index
-                try:
-                    # Use the new API to get the index
-                    print(f"DEBUG: Connecting to Pinecone index: {INDEX_NAME}")
-                    pinecone_index = pc.Index(INDEX_NAME)
-                    print(f"DEBUG: Successfully connected to Pinecone index")
-                    print(f"DEBUG: Index stats: {pinecone_index.describe_index_stats()}")
-                    
-                    # Create the vector store - check if namespace is being used
-                    print(f"DEBUG: Creating PineconeVectorStore...")
-                    vector_store = PineconeVectorStore(pinecone_index)
-                    print(f"DEBUG: PineconeVectorStore created successfully")
-                    print(f"DEBUG: Vector store namespace: {getattr(vector_store, 'namespace', 'default/none')}")# Configure the embeddings explicitly
-                    embed_model = OpenAIEmbedding(
-                        api_key=OPENAI_API_KEY,
-                        model="text-embedding-3-large",  # Large model with 3072 dimensions
-                        dimensions=3072
-                    )
-                      # Update the global settings
-                    Settings.embed_model = embed_model
-                    
-                    # Initialize empty index with the embed model explicitly set
-                    # For a new/empty index, we need to create a minimal structure
-                    try:
-                        # Try to create with empty nodes list to initialize structure
-                        index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
-                        print("Pinecone and Vector Index initialized successfully with OpenAI embeddings")
-                    except Exception as struct_error:
-                        print(f"Note: Could not initialize with empty nodes: {struct_error}")
-                        # Create a simple document as placeholder if needed
-                        placeholder_doc = Document(text="Placeholder document for initializing index.", id_="placeholder")
-                        index = VectorStoreIndex.from_documents([placeholder_doc], vector_store=vector_store, embed_model=embed_model)
-                        print("Initialized index with a placeholder document")
-                    except ValueError as e:
-                        if "One of nodes, objects, or index_struct must be provided" in str(e):
-                            # Create an empty document to initialize the index structure
-                            print("Creating an empty index with a blank document to initialize structure")
-                            empty_doc = Document(text="This is a placeholder document to initialize the index structure.")
-                            index = VectorStoreIndex.from_documents(
-                                [empty_doc], 
-                                vector_store=vector_store,
-                                embed_model=embed_model
-                            )
-                            print("Created new index structure with an empty document")
-                        else:
-                            raise
-                except Exception as index_error:
-                    print(f"Failed to connect to Pinecone index: {str(index_error)}")
-                    index = None  # Set to None to indicate initialization failure
-                    
-            except (ImportError, AttributeError) as version_error:
-                # Fall back to legacy approach if needed
-                print(f"Using legacy Pinecone initialization: {version_error}")
-                
-                # Legacy initialization method (for older versions)
-                pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-                
-                if INDEX_NAME not in pinecone.list_indexes():
-                    print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. Attempting to create it...")
-                    pinecone.create_index(
-                        name=INDEX_NAME,
-                        dimension=3072,  # For text-embedding-3-large model
-                        metric="cosine",
-                        pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
-                    )
-                    
-                # Connect to the index
-                pinecone_index = pinecone.Index(INDEX_NAME)
-                vector_store = PineconeVectorStore(pinecone_index)                # Configure the embeddings explicitly
-                embed_model = OpenAIEmbedding(
-                    api_key=OPENAI_API_KEY,
-                    model="text-embedding-3-large",  # Large model with 3072 dimensions
-                    dimensions=3072
-                )
-                  # Update the global settings
-                Settings.embed_model = embed_model
-                
-                # Initialize empty index with the embed model explicitly set
-                # For a new/empty index, we need to create a minimal structure
-                try:
-                    # Try to create with empty nodes list to initialize structure
-                    index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
-                    print("Pinecone and Vector Index initialized successfully with OpenAI embeddings (legacy method)")
-                except Exception as struct_error:
-                    print(f"Note: Could not initialize with empty nodes: {struct_error}")
-                    # Create a simple document as placeholder if needed
-                    placeholder_doc = Document(text="Placeholder document for initializing index.", id_="placeholder")
-                    index = VectorStoreIndex.from_documents([placeholder_doc], vector_store=vector_store, embed_model=embed_model)
-                    print("Initialized index with a placeholder document (legacy method)")
-                except ValueError as e:
-                    if "One of nodes, objects, or index_struct must be provided" in str(e):
-                        # Create an empty document to initialize the index structure
-                        print("Creating an empty index with a blank document to initialize structure")
-                        empty_doc = Document(text="This is a placeholder document to initialize the index structure.")
-                        index = VectorStoreIndex.from_documents(
-                            [empty_doc], 
-                            vector_store=vector_store,
-                            embed_model=embed_model
-                        )
-                        print("Created new index structure with an empty document (legacy method)")
+                    # Handle potential version differences
+                    import inspect
+                    client_params = inspect.signature(create_client).parameters
+                    if len(client_params) == 2:  # Just URL and key
+                        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
                     else:
-                        raise
-                
-        except Exception as index_error:
-            print(f"Failed to connect to Pinecone index: {str(index_error)}")
-            index = None  # Set to None to indicate initialization failure
-        except Exception as e:
-            print(f"Failed to initialize Pinecone: {e}")
-          # Initialize Supabase client with error handling
-        if SUPABASE_URL and SUPABASE_KEY:
-            try:
-                # Initialize Supabase client with only the required parameters
-                # to avoid issues with unexpected keyword arguments like 'proxy'
-                try:
-                    # First attempt: Basic initialization with just URL and key
-                    supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-                except TypeError as type_error:
-                    if "got an unexpected keyword argument" in str(type_error):
-                        print(f"Adjusting Supabase client initialization due to: {type_error}")
-                        # Different versions of the library may expect different parameters
-                        # Try to import the specific version and adjust accordingly
-                        import sys
-                        print(f"Supabase library version: {sys.modules.get('supabase', None)}")
-                        
-                        # Handle potential version differences
-                        import inspect
-                        client_params = inspect.signature(create_client).parameters
-                        if len(client_params) == 2:  # Just URL and key
-                            supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-                        else:
-                            # Fallback to basic minimum parameters
-                            supabase_client = create_client(
-                                supabase_url=SUPABASE_URL,
-                                supabase_key=SUPABASE_KEY
-                            )
-                    else:
-                        raise                print("Supabase client initialized successfully")
+                        # Fallback to basic minimum parameters
+                        supabase_client = create_client(
+                            supabase_url=SUPABASE_URL,
+                            supabase_key=SUPABASE_KEY
+                        )
+                else:
+                    raise                print("Supabase client initialized successfully")
                 
                 # Try to make a simple API call to verify connectivity
                 try:
@@ -509,7 +355,7 @@ async def admin_status(token: str = Depends(verify_token)):
     status["services"]["pinecone"]["environment_set"] = bool(PINECONE_ENVIRONMENT)
     
     try:
-        # Try new Pinecone client approach first
+        # Try new Pinecone client approach
         try:
             from pinecone import Pinecone
             pc = Pinecone(api_key=PINECONE_API_KEY)
@@ -666,7 +512,7 @@ async def reindex(user_id: Optional[str] = None, token: str = Depends(verify_tok
 def delete_index():
     global index
     try:
-        # Try new Pinecone client approach first
+        # Try new Pinecone client approach
         try:
             from pinecone import Pinecone
             pc = Pinecone(api_key=PINECONE_API_KEY)
@@ -842,32 +688,26 @@ async def debug_pinecone_stats(token: str = Depends(verify_token)):
         pc = Pinecone(api_key=PINECONE_API_KEY)
         
         # List all indexes
-        indexes = pc.list_indexes().names()
+        indexes = pc.list_indexes()
         
-        # Get stats for our specific index
-        if INDEX_NAME in indexes:
-            pinecone_index = pc.Index(INDEX_NAME)
-            stats = pinecone_index.describe_index_stats()
-            
-            return {
-                "success": True,
-                "index_name": INDEX_NAME,
-                "all_indexes": indexes,
-                "index_stats": stats,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        else:
-            return {
-                "error": f"Index '{INDEX_NAME}' not found",
-                "available_indexes": indexes
-            }
-            
+        # Get our specific index
+        pinecone_index = pc.Index(INDEX_NAME)
+        
+        # Get detailed stats
+        stats = pinecone_index.describe_index_stats()
+        
+        return {
+            "success": True,
+            "available_indexes": [idx.name for idx in indexes],
+            "current_index": INDEX_NAME,
+            "index_stats": stats
+        }
+        
     except Exception as e:
         import traceback
         return {
             "error": f"Failed to get Pinecone stats: {str(e)}",
-            "traceback": traceback.format_exc(),
-            "timestamp": datetime.utcnow().isoformat()
+            "traceback": traceback.format_exc()
         }
 
 @app.post("/process")
@@ -1251,6 +1091,15 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             print(f"Index name: {INDEX_NAME}")
             print(f"Index object: {index}")
             print(f"First node metadata: {nodes[0].metadata if nodes else 'No nodes'}")
+            print(f"Embedding model: {EMBEDDING_MODEL}")
+            print(f"Embedding dimensions: {EMBEDDING_DIMENSIONS}")
+              try:
+                index.insert_nodes(nodes)
+                print(f"✓ Successfully indexed {len(nodes)} chunks from file {file_name}")
+            except Exception as insert_error:
+                print(f"❌ Failed to insert nodes: {str(insert_error)}")
+                raise
+            
             print(f"Embedding model: {EMBEDDING_MODEL}")
             print(f"Embedding dimensions: {EMBEDDING_DIMENSIONS}")
             
