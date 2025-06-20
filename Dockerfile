@@ -36,6 +36,9 @@ RUN mkdir -p data
 # Copy test_imports.py to root directory
 COPY test_imports.py /app/
 
+# Copy vector_store_config.py to root directory for better import compatibility
+COPY vector_store_config.py /app/
+
 # Copy application code from backend directory
 COPY backend/ ./
 
@@ -48,6 +51,7 @@ EXPOSE 8000
 
 # Copy additional diagnostic files
 COPY railway_deploy.sh /app/
+COPY railway_troubleshoot.py /app/
 # These files are already copied from the backend directory, so we don't need to copy them again
 # COPY backend/test_server.py /app/
 # COPY backend/healthcheck.py /app/

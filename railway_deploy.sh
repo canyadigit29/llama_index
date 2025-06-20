@@ -113,10 +113,20 @@ echo "Installed packages (selected):"
 pip list | grep -E 'pinecone|llama|fastapi|uvicorn'
 echo "---------------------------------------------"
 
-# Add app root to Python path - backend files are now in /app
-export PYTHONPATH=${PYTHONPATH}:/app
+# Add app root and current directory to Python path
+export PYTHONPATH=${PYTHONPATH}:/app:$(pwd)
 
 echo "Running application with port 8000 and PYTHONPATH=$PYTHONPATH"
+echo "Current directory: $(pwd)"
+echo "Listing files in current directory:"
+ls -la
+
+# Check if vector_store_config.py is in the current directory
+if [ -f "vector_store_config.py" ]; then
+  echo "Found vector_store_config.py in current directory"
+else
+  echo "vector_store_config.py NOT found in current directory"
+fi
 
 # Check if directory structure is as expected
 if [ -d "/app/backend" ]; then
@@ -125,6 +135,14 @@ if [ -d "/app/backend" ]; then
 else
   echo "Using flat structure - backend files are in /app root"
   cd /app
+fi
+
+# Run import troubleshooter to help diagnose any issues
+if [ -f "railway_troubleshoot.py" ]; then
+  echo "Running import path troubleshooter"
+  python railway_troubleshoot.py
+else
+  echo "Import troubleshooter not found - skipping"
 fi
 
 # Run the validation script for Pinecone if it exists

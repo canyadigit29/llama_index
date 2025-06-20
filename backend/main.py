@@ -31,18 +31,45 @@ from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import vector store configuration - ensure proper path
+print("Trying to import VectorStoreManager...")
 try:
-    # Try local import first
-    from vector_store_config import VectorStoreManager
-    VECTOR_STORE_CONFIG_AVAILABLE = True
-except ImportError:
+    # First, add current directory to path if not already there
+    import sys
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+        print(f"Added {current_dir} to sys.path")
+        
+    # Try imports in different ways to handle various deployment configurations
     try:
-        # Try with backend. prefix in case the app is started from the project root
-        from backend.vector_store_config import VectorStoreManager
+        # Try local import first
+        from vector_store_config import VectorStoreManager
+        print("✓ Successfully imported VectorStoreManager from vector_store_config")
         VECTOR_STORE_CONFIG_AVAILABLE = True
-    except ImportError:
-        VECTOR_STORE_CONFIG_AVAILABLE = False
-        print("WARNING: vector_store_config.py not available, using built-in Pinecone setup")
+    except ImportError as e1:
+        print(f"Local import failed: {e1}")
+        try:
+            # Try with backend. prefix in case the app is started from the project root
+            from backend.vector_store_config import VectorStoreManager
+            print("✓ Successfully imported VectorStoreManager from backend.vector_store_config")
+            VECTOR_STORE_CONFIG_AVAILABLE = True
+        except ImportError as e2:
+            print(f"backend. prefix import failed: {e2}")
+            try:
+                # Try relative import
+                sys.path.insert(0, os.path.join(current_dir, ".."))
+                print(f"Added {os.path.join(current_dir, '..')} to sys.path")
+                from vector_store_config import VectorStoreManager
+                print("✓ Successfully imported VectorStoreManager from parent directory")
+                VECTOR_STORE_CONFIG_AVAILABLE = True
+            except ImportError as e3:
+                print(f"Relative import failed: {e3}")
+                VECTOR_STORE_CONFIG_AVAILABLE = False
+                print("WARNING: vector_store_config.py not available, using built-in Pinecone setup")
+except Exception as e:
+    print(f"❌ Error during import attempts: {e}")
+    VECTOR_STORE_CONFIG_AVAILABLE = False
+    print("WARNING: Failed to import VectorStoreManager")
 
 # Define storage bucket name from environment variables with fallback to "files"
 STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME", "files")
