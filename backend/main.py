@@ -104,7 +104,7 @@ app.add_middleware(
 # Environment variables
 PINECONE_API_KEY = os.environ.get("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.environ.get("PINECONE_ENVIRONMENT")
-PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
+PINECONE_INDEX_NAME = os.environ.get("PINECONE_INDEX_NAME", "maxgpt")
 INDEX_NAME = PINECONE_INDEX_NAME  # For backward compatibility
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
