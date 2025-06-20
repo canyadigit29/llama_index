@@ -32,8 +32,8 @@ print(f"Using storage bucket name: {STORAGE_BUCKET_NAME}")
 # Import vector store configuration
 from vector_store_config import initialize_vector_store, get_vector_store_manager
 
-# Supabase imports
-from supabase import create_client, Client
+# Import supabase client from config module
+from supabase.supabase_config import get_supabase_client
 
 # JWT handling
 import base64
@@ -183,81 +183,54 @@ def load_index():
         embed_model = None
     
     # Initialize Supabase client with error handling
-    if SUPABASE_URL and SUPABASE_KEY:
+    supabase_client = get_supabase_client()
+    if supabase_client:
         try:
-            # Initialize Supabase client with only the required parameters
-            # to avoid issues with unexpected keyword arguments like 'proxy'
-            try:
-                # First attempt: Basic initialization with just URL and key
-                supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-            except TypeError as type_error:
-                if "got an unexpected keyword argument" in str(type_error):
-                    print(f"Adjusting Supabase client initialization due to: {type_error}")
-                    # Different versions of the library may expect different parameters
-                    # Try to import the specific version and adjust accordingly
-                    import sys
-                    print(f"Supabase library version: {sys.modules.get('supabase', None)}")
-                    
-                    # Handle potential version differences
-                    import inspect
-                    client_params = inspect.signature(create_client).parameters
-                    if len(client_params) == 2:  # Just URL and key
-                        supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-                    else:
-                        # Fallback to basic minimum parameters
-                        supabase_client = create_client(
-                            supabase_url=SUPABASE_URL,
-                            supabase_key=SUPABASE_KEY
-                        )
-                else:
-                    raise                print("Supabase client initialized successfully")
-                
-                # Try to make a simple API call to verify connectivity
-                try:
-                    health_check = supabase_client.table("llama_index_documents").select("count", count="exact").limit(1).execute()
-                    print(f"Supabase connectivity verified with simple query")
-                except Exception as health_error:
-                    print(f"Supabase connectivity check failed: {health_error}")
-                    if "Authentication failed" in str(health_error) or "JWT" in str(health_error):
-                        print("AUTHENTICATION ERROR: Likely issue with Supabase key or permissions")
-                        print("Verify SUPABASE_ANON_KEY is correct and RLS policies are properly configured")
-                    elif "not found" in str(health_error).lower():
-                        print("TABLE ERROR: Required table not found in database")
-                        print("Make sure all migration scripts have been run")
-                    else:
-                        print(f"Unexpected Supabase error: {str(health_error)}")
-                
-                # Check storage bucket access
-                try:
-                    storage_buckets = supabase_client.storage.list_buckets()
-                    print(f"Successfully accessed storage buckets: {[b['name'] for b in storage_buckets]}")
-                except Exception as storage_error:
-                    print(f"Failed to access storage buckets: {storage_error}")
-                    if "permission" in str(storage_error).lower() or "access" in str(storage_error).lower():
-                        print("STORAGE ERROR: Likely permissions issue with storage buckets")
-                        print("Verify RLS policies for storage are correctly set up")                # Check if llama_index_documents table exists
-                try:
-                    # Try to query the table - this will fail if it doesn't exist
-                    supabase_client.table("llama_index_documents").select("id").limit(1).execute()
-                    print("'llama_index_documents' table exists")
-                except Exception as table_error:
-                    print(f"'llama_index_documents' table check failed: {table_error}")
-                    if "not found" in str(table_error).lower():
-                        print("WARNING: 'llama_index_documents' table not found.")
-                        print("Please apply the migration from: supabase/migrations/20250618000000_add_llama_index_documents.sql")
-            except Exception as e:
-                print(f"Failed to initialize Supabase client: {e}")
-                # Check for common errors and provide helpful messages
-                if "connection" in str(e).lower() or "network" in str(e).lower():
-                    print("NETWORK ERROR: Could not connect to Supabase")
-                    print("Check that the SUPABASE_URL is correct and the service is accessible from your deployment environment")
-                elif "unauthorized" in str(e).lower() or "authentication" in str(e).lower():
-                    print("AUTHENTICATION ERROR: Supabase rejected the provided credentials")
-                    print("Verify that SUPABASE_ANON_KEY is correct")
-                supabase_client = None
+            # Try to make a simple API call to verify connectivity
+            health_check = supabase_client.table("llama_index_documents").select("count", count="exact").limit(1).execute()
+            print(f"Supabase connectivity verified with simple query")
+        except Exception as health_error:
+            print(f"Supabase connectivity check failed: {health_error}")
+            if "Authentication failed" in str(health_error) or "JWT" in str(health_error):
+                print("AUTHENTICATION ERROR: Likely issue with Supabase key or permissions")
+                print("Verify SUPABASE_ANON_KEY is correct and RLS policies are properly configured")
+            elif "not found" in str(health_error).lower():
+                print("TABLE ERROR: Required table not found in database")
+                print("Make sure all migration scripts have been run")
+            else:
+                print(f"Unexpected Supabase error: {str(health_error)}")
+        
+        # Check storage bucket access
+        try:
+            storage_buckets = supabase_client.storage.list_buckets()
+            print(f"Successfully accessed storage buckets: {[b['name'] for b in storage_buckets]}")
+        except Exception as storage_error:
+            print(f"Failed to access storage buckets: {storage_error}")
+            if "permission" in str(storage_error).lower() or "access" in str(storage_error).lower():
+                print("STORAGE ERROR: Likely permissions issue with storage buckets")
+                print("Verify RLS policies for storage are correctly set up")                # Check if llama_index_documents table exists
+        try:
+            # Try to query the table - this will fail if it doesn't exist
+            supabase_client.table("llama_index_documents").select("id").limit(1).execute()
+            print("'llama_index_documents' table exists")
+        except Exception as table_error:
+            print(f"'llama_index_documents' table check failed: {table_error}")
+            if "not found" in str(table_error).lower():
+                print("WARNING: 'llama_index_documents' table not found.")
+                print("Please apply the migration from: supabase/migrations/20250618000000_add_llama_index_documents.sql")
         except Exception as e:
-            print(f"Error during startup: {e}")
-            # The app will still start, but with limited functionality
+            print(f"Failed to initialize Supabase client: {e}")
+            # Check for common errors and provide helpful messages
+            if "connection" in str(e).lower() or "network" in str(e).lower():
+                print("NETWORK ERROR: Could not connect to Supabase")
+                print("Check that the SUPABASE_URL is correct and the service is accessible from your deployment environment")
+            elif "unauthorized" in str(e).lower() or "authentication" in str(e).lower():
+                print("AUTHENTICATION ERROR: Supabase rejected the provided credentials")
+                print("Verify that SUPABASE_ANON_KEY is correct")
+            supabase_client = None
+    except Exception as e:
+        print(f"Error during startup: {e}")
+        # The app will still start, but with limited functionality
 
 # Models for API requests/responses
 class QueryRequest(BaseModel):
