@@ -22,6 +22,10 @@ export PORT=8000
 echo "Running port availability check..."
 python port_config.py 2>/dev/null || echo "Port config script not found, continuing..."
 
+# Run Pinecone configuration validation
+echo "Validating Pinecone configuration for Railway..."
+cd /app/backend && python railway_pinecone_setup.py || echo "Pinecone validation completed with warnings"
+
 # Print diagnostic information
 echo "Current environment:"
 echo "- PORT: $PORT"

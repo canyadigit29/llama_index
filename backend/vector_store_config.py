@@ -18,15 +18,17 @@ class VectorStoreManager:
     def __init__(self):
         self.vector_store = None
         self.index = None
-        self.embed_model = None
-        
-        # Environment variables
+        self.embed_model = None        # Environment variables
         self.pinecone_api_key = os.environ.get("PINECONE_API_KEY")
         self.pinecone_environment = os.environ.get("PINECONE_ENVIRONMENT")
-        self.pinecone_index_name = os.environ.get("PINECONE_INDEX_NAME", "maxgpt")
+        self.pinecone_index_name = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")
         self.openai_api_key = os.environ.get("OPENAI_API_KEY")
         self.embedding_model = os.environ.get("EMBEDDING_MODEL", "text-embedding-3-large")
         self.embedding_dimensions = int(os.environ.get("EMBEDDING_DIMENSIONS", "3072"))
+        
+        print(f"Vector Store Config: Using Pinecone index '{self.pinecone_index_name}' in environment '{self.pinecone_environment}'")
+        if not self.pinecone_api_key:
+            print("WARNING: PINECONE_API_KEY environment variable is not set!")
         
     def initialize_embeddings(self) -> OpenAIEmbedding:
         """Initialize OpenAI embeddings."""
@@ -42,16 +44,49 @@ class VectorStoreManager:
         # Set global settings
         Settings.embed_model = self.embed_model
         print(f"✅ Initialized OpenAI embeddings: {self.embedding_model} ({self.embedding_dimensions}D)")
-        
-        return self.embed_model
+          return self.embed_model
     
     def initialize_pinecone_vector_store(self) -> PineconeVectorStore:
         """Initialize Pinecone vector store using the proper from_params method."""
         if not self.pinecone_api_key or not self.pinecone_environment:
             raise ValueError("PINECONE_API_KEY and PINECONE_ENVIRONMENT are required")
         
+        print(f"Initializing Pinecone with index '{self.pinecone_index_name}' in '{self.pinecone_environment}'")
+        
         try:
-            # Use the official PineconeVectorStore.from_params method
+            # Try the newer Pinecone client approach first
+            try:
+                import pinecone
+                from pinecone import Pinecone, ServerlessSpec
+                
+                # Check if modern API is available
+                if hasattr(pinecone, "Pinecone"):
+                    # Create Pinecone client
+                    pc = Pinecone(api_key=self.pinecone_api_key)
+                    print("Using modern Pinecone API (v3)")
+                    
+                    # Check if index exists
+                    try:
+                        indexes = pc.list_indexes().names()
+                        print(f"Available indexes: {indexes}")
+                        
+                        if self.pinecone_index_name not in indexes:
+                            print(f"WARNING: Index '{self.pinecone_index_name}' not found in Pinecone")
+                            print("Please create the index in the Pinecone console first")
+                    except Exception as list_err:
+                        print(f"Error listing indexes: {str(list_err)}")
+                    
+                    # Connect to the index
+                    pinecone_index = pc.Index(self.pinecone_index_name)
+                    self.vector_store = PineconeVectorStore(pinecone_index)
+                    
+                    print(f"✅ Successfully initialized Pinecone vector store with modern API")
+                    return self.vector_store
+            except (ImportError, AttributeError) as modern_err:
+                print(f"Modern Pinecone API not available: {str(modern_err)}")
+                print("Falling back to legacy API...")
+            
+            # Fall back to the official PineconeVectorStore.from_params method
             self.vector_store = PineconeVectorStore.from_params(
                 api_key=self.pinecone_api_key,
                 index_name=self.pinecone_index_name,

@@ -5,6 +5,7 @@ from middleware import add_request_logger
 
 # VERSION: 2025-06-20 - Almost working version with OCR PDF processing
 # Fix for file not found issues in PDF upload implementation
+# UPDATED: Railway Pinecone configuration for seamless deployment
 
 from llama_index.core import VectorStoreIndex, Document, Settings
 # Use the correct import path for SimpleDirectoryReader
@@ -28,6 +29,14 @@ import json
 from typing import List, Optional
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
+
+# Import vector store configuration
+try:
+    from vector_store_config import VectorStoreManager
+    VECTOR_STORE_CONFIG_AVAILABLE = True
+except ImportError:
+    VECTOR_STORE_CONFIG_AVAILABLE = False
+    print("WARNING: vector_store_config.py not available, using built-in Pinecone setup")
 
 # Define storage bucket name from environment variables with fallback to "files"
 STORAGE_BUCKET_NAME = os.environ.get("STORAGE_BUCKET_NAME", "files")
@@ -183,69 +192,88 @@ def load_index():
     print("Starting application initialization...")
     
     # Initialize external services with more robust error handling
-    try:
-        # Check if Pinecone credentials are available
-        if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
-            print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
-            # Continue initialization - don't return early
-              # Initialize Pinecone with error handling
+    try:        # Initialize Pinecone - using the VectorStoreManager if available
         try:
-            # Use the new Pinecone client initialization
-            try:
-                # Try the new Pinecone client approach
-                from pinecone import Pinecone, ServerlessSpec
+            if VECTOR_STORE_CONFIG_AVAILABLE:
+                print("Initializing Pinecone using VectorStoreManager")
+                # Create vector store manager
+                vector_store_manager = VectorStoreManager()
                 
-                # Create Pinecone client
-                pc = Pinecone(api_key=PINECONE_API_KEY)
-                print("Initialized Pinecone client using new API")
+                # Initialize embeddings
+                embed_model = vector_store_manager.initialize_embeddings()
                 
-                # Check if index exists
-                existing_indexes = pc.list_indexes().names()
-                if INDEX_NAME not in existing_indexes:
-                    print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
-                    print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
+                # Initialize vector store
+                vector_store = vector_store_manager.initialize_pinecone_vector_store()
+                
+                # Initialize index
+                index = vector_store_manager.initialize_vector_index()
+                
+                print("✅ Successfully initialized Pinecone and vector index using VectorStoreManager")
+            else:
+                # Fall back to built-in approach
+                print("Using built-in Pinecone initialization approach")
+                
+                # Check if Pinecone credentials are available
+                if not PINECONE_API_KEY or not PINECONE_ENVIRONMENT:
+                    print("WARNING: Missing Pinecone credentials. Some features will be unavailable.")
+                    # Continue initialization - don't return early
+                
+                # Initialize Pinecone with error handling
+                # Use the new Pinecone client initialization
+                try:
+                    # Try the new Pinecone client approach
+                    from pinecone import Pinecone, ServerlessSpec
                     
-                    try:
-                        # Try to create the index with serverless spec
-                        pc.create_index(
-                            name=INDEX_NAME,
-                            dimension=1536,  # default for OpenAI embeddings
-                            metric="cosine",
-                            spec=ServerlessSpec(
-                                cloud=PINECONE_ENVIRONMENT.split("-")[0],  # Extract cloud provider from environment
-                                region=PINECONE_ENVIRONMENT.split("-", 1)[1] if "-" in PINECONE_ENVIRONMENT else "us-west-2"
-                            )
-                        )
-                        print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
-                    except Exception as spec_error:
-                        print(f"Serverless creation failed, trying standard creation: {spec_error}")
-                        # Try again without serverless spec (for older Pinecone accounts)
+                    # Create Pinecone client
+                    pc = Pinecone(api_key=PINECONE_API_KEY)
+                    print("Initialized Pinecone client using new API")
+                    
+                    # Check if index exists
+                    existing_indexes = pc.list_indexes().names()
+                    if INDEX_NAME not in existing_indexes:
+                        print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually.")
+                        print("Attempting to create index with default settings - this may fail if your account doesn't support these settings.")
+                        
                         try:
+                            # Try to create the index with serverless spec
                             pc.create_index(
                                 name=INDEX_NAME,
-                                dimension=1536,
-                                metric="cosine"
+                                dimension=3072,  # for text-embedding-3-large
+                                metric="cosine",
+                                spec=ServerlessSpec(
+                                    cloud=PINECONE_ENVIRONMENT.split("-")[0],  # Extract cloud provider from environment
+                                    region=PINECONE_ENVIRONMENT.split("-", 1)[1] if "-" in PINECONE_ENVIRONMENT else "us-west-2"
+                                )
                             )
-                            print(f"Successfully created Pinecone index: {INDEX_NAME}")
-                        except Exception as std_error:
-                            print(f"Failed to auto-create Pinecone index: {str(std_error)}")
-                            print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
-                
-                # Connect to the index
-                try:
-                    # Use the new API to get the index
+                            print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
+                        except Exception as spec_error:
+                            print(f"Serverless creation failed, trying standard creation: {spec_error}")
+                            # Try again without serverless spec (for older Pinecone accounts)
+                            try:
+                                pc.create_index(
+                                    name=INDEX_NAME,
+                                    dimension=3072,  # for text-embedding-3-large
+                                    metric="cosine"
+                                )
+                                print(f"Successfully created Pinecone index: {INDEX_NAME}")
+                            except Exception as std_error:
+                                print(f"Failed to auto-create Pinecone index: {str(std_error)}")
+                    
+                    # Connect to the index
                     pinecone_index = pc.Index(INDEX_NAME)
-                    vector_store = PineconeVectorStore(pinecone_index)                    # Configure the embeddings explicitly
+                    vector_store = PineconeVectorStore(pinecone_index)
+                    
+                    # Configure the embeddings explicitly
                     embed_model = OpenAIEmbedding(
                         api_key=OPENAI_API_KEY,
                         model="text-embedding-3-large",  # Large model with 3072 dimensions
                         dimensions=3072
                     )
-                      # Update the global settings
+                    
+                    # Update the global settings
                     Settings.embed_model = embed_model
                     
                     # Initialize empty index with the embed model explicitly set
-                    # For a new/empty index, we need to create a minimal structure
                     try:
                         # Try to create with empty nodes list to initialize structure
                         index = VectorStoreIndex(nodes=[], vector_store=vector_store, embed_model=embed_model)
@@ -256,47 +284,33 @@ def load_index():
                         placeholder_doc = Document(text="Placeholder document for initializing index.", id_="placeholder")
                         index = VectorStoreIndex.from_documents([placeholder_doc], vector_store=vector_store, embed_model=embed_model)
                         print("Initialized index with a placeholder document")
-                    except ValueError as e:
-                        if "One of nodes, objects, or index_struct must be provided" in str(e):
-                            # Create an empty document to initialize the index structure
-                            print("Creating an empty index with a blank document to initialize structure")
-                            empty_doc = Document(text="This is a placeholder document to initialize the index structure.")
-                            index = VectorStoreIndex.from_documents(
-                                [empty_doc], 
-                                vector_store=vector_store,
-                                embed_model=embed_model
-                            )
-                            print("Created new index structure with an empty document")
-                        else:
-                            raise
-                except Exception as index_error:
-                    print(f"Failed to connect to Pinecone index: {str(index_error)}")
-                    index = None  # Set to None to indicate initialization failure
+                        
+                except (ImportError, AttributeError) as version_error:
+                    # Fall back to legacy approach if needed
+                    print(f"Using legacy Pinecone initialization: {version_error}")
                     
-            except (ImportError, AttributeError) as version_error:
-                # Fall back to legacy approach if needed
-                print(f"Using legacy Pinecone initialization: {version_error}")
-                
-                # Legacy initialization method (for older versions)
-                pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-                
-                if INDEX_NAME not in pinecone.list_indexes():
-                    print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. Attempting to create it...")
-                    pinecone.create_index(
-                        name=INDEX_NAME,
-                        dimension=3072,  # For text-embedding-3-large model
-                        metric="cosine",
-                        pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
+                    # Legacy initialization method (for older versions)
+                    pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+                    
+                    if INDEX_NAME not in pinecone.list_indexes():
+                        print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. Attempting to create it...")
+                        pinecone.create_index(
+                            name=INDEX_NAME,
+                            dimension=3072,  # For text-embedding-3-large model
+                            metric="cosine",
+                            pod_type="p1"  # Using pod_type instead of cloud/region for better compatibility
+                        )
+                        
+                    # Connect to the index
+                    pinecone_index = pinecone.Index(INDEX_NAME)
+                    vector_store = PineconeVectorStore(pinecone_index)
+                    
+                    # Configure the embeddings explicitly
+                    embed_model = OpenAIEmbedding(
+                        api_key=OPENAI_API_KEY,
+                        model="text-embedding-3-large",  # Large model with 3072 dimensions
+                        dimensions=3072
                     )
-                    
-                # Connect to the index
-                pinecone_index = pinecone.Index(INDEX_NAME)
-                vector_store = PineconeVectorStore(pinecone_index)                # Configure the embeddings explicitly
-                embed_model = OpenAIEmbedding(
-                    api_key=OPENAI_API_KEY,
-                    model="text-embedding-3-large",  # Large model with 3072 dimensions
-                    dimensions=3072
-                )
                   # Update the global settings
                 Settings.embed_model = embed_model
                 
