@@ -194,18 +194,18 @@ def load_index():
                 # Create Pinecone client
                 pc = Pinecone(api_key=PINECONE_API_KEY)
                 print("Initialized Pinecone client using new API")
-                
-                # Check if index exists
+                  # Check if index exists
                 existing_indexes = pc.list_indexes().names()
+                print(f"DEBUG: Available Pinecone indexes: {existing_indexes}")
+                print(f"DEBUG: Looking for index: {INDEX_NAME}")
                 if INDEX_NAME not in existing_indexes:
                     print(f"WARNING: Index '{INDEX_NAME}' not found in Pinecone. For best results, create it manually in the Pinecone console.")
                     print("Attempting to create index with default settings - this may fail if your account does not support these settings.")
-                    
-                    try:
+                      try:
                         # Try to create the index with serverless spec
                         pc.create_index(
                             name=INDEX_NAME,
-                            dimension=1536,  # default for OpenAI embeddings
+                            dimension=3072,  # For text-embedding-3-large model
                             metric="cosine",
                             spec=ServerlessSpec(
                                 cloud=PINECONE_ENVIRONMENT.split("-")[0],  # Extract cloud provider from environment
@@ -215,23 +215,24 @@ def load_index():
                         print(f"Successfully created Pinecone index: {INDEX_NAME} with serverless spec")
                     except Exception as spec_error:
                         print(f"Serverless creation failed, trying standard creation: {spec_error}")
-                        # Try again without serverless spec (for older Pinecone accounts)
-                        try:
+                        # Try again without serverless spec (for older Pinecone accounts)                        try:
                             pc.create_index(
                                 name=INDEX_NAME,
-                                dimension=1536,
+                                dimension=3072,  # For text-embedding-3-large model
                                 metric="cosine"
                             )
                             print(f"Successfully created Pinecone index: {INDEX_NAME}")
                         except Exception as std_error:
                             print(f"Failed to auto-create Pinecone index: {str(std_error)}")
                             print("Please create the index manually in the Pinecone console with the appropriate settings for your account.")
-                
-                # Connect to the index
+                  # Connect to the index
                 try:
                     # Use the new API to get the index
+                    print(f"DEBUG: Connecting to Pinecone index: {INDEX_NAME}")
                     pinecone_index = pc.Index(INDEX_NAME)
-                    vector_store = PineconeVectorStore(pinecone_index)                    # Configure the embeddings explicitly
+                    print(f"DEBUG: Successfully connected to Pinecone index")
+                    print(f"DEBUG: Index stats: {pinecone_index.describe_index_stats()}")
+                    vector_store = PineconeVectorStore(pinecone_index)# Configure the embeddings explicitly
                     embed_model = OpenAIEmbedding(
                         api_key=OPENAI_API_KEY,
                         model="text-embedding-3-large",  # Large model with 3072 dimensions
@@ -1247,14 +1248,23 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                 if not node.metadata:
                     node.metadata = {}
                 node.metadata["supabase_file_id"] = file_id
-            
-            # Insert the nodes into the index
+              # Insert the nodes into the index
             print(f"Inserting {len(nodes)} nodes into Pinecone index...")
+            print(f"Index name: {INDEX_NAME}")
+            print(f"Index object: {index}")
+            print(f"First node metadata: {nodes[0].metadata if nodes else 'No nodes'}")
+            print(f"Embedding model: {EMBEDDING_MODEL}")
+            print(f"Embedding dimensions: {EMBEDDING_DIMENSIONS}")
             try:
                 index.insert_nodes(nodes)
                 print(f"✓ Successfully indexed {len(nodes)} chunks from file {file_name}")
+                print(f"✓ Pinecone index should now have {len(nodes)} new vectors")
             except Exception as pinecone_error:
                 print(f"ERROR: Failed to insert nodes into Pinecone: {str(pinecone_error)}")
+                print(f"ERROR: Exception type: {type(pinecone_error).__name__}")
+                import traceback
+                print(f"ERROR: Full traceback:")
+                print(traceback.format_exc())
                 # Check for common Pinecone errors
                 error_message = str(pinecone_error).lower()
                 if "dimension" in error_message:
@@ -1275,7 +1285,7 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     raise HTTPException(
                         status_code=500,
                         detail=f"Error indexing to Pinecone: {str(pinecone_error)}"
-                    )            # Store record in Supabase
+                    )# Store record in Supabase
             print("Recording indexed document in Supabase...")
             try:
                 # Create a flexible record with required fields
