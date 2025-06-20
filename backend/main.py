@@ -218,16 +218,16 @@ def load_index():
             if "not found" in str(table_error).lower():
                 print("WARNING: 'llama_index_documents' table not found.")
                 print("Please apply the migration from: supabase/migrations/20250618000000_add_llama_index_documents.sql")
-        except Exception as e:
-            print(f"Failed to initialize Supabase client: {e}")
-            # Check for common errors and provide helpful messages
-            if "connection" in str(e).lower() or "network" in str(e).lower():
-                print("NETWORK ERROR: Could not connect to Supabase")
-                print("Check that the SUPABASE_URL is correct and the service is accessible from your deployment environment")
-            elif "unauthorized" in str(e).lower() or "authentication" in str(e).lower():
-                print("AUTHENTICATION ERROR: Supabase rejected the provided credentials")
-                print("Verify that SUPABASE_ANON_KEY is correct")
-            supabase_client = None
+    except Exception as e:
+        print(f"Failed to initialize Supabase client: {e}")
+        # Check for common errors and provide helpful messages
+        if "connection" in str(e).lower() or "network" in str(e).lower():
+            print("NETWORK ERROR: Could not connect to Supabase")
+            print("Check that the SUPABASE_URL is correct and the service is accessible from your deployment environment")
+        elif "unauthorized" in str(e).lower() or "authentication" in str(e).lower():
+            print("AUTHENTICATION ERROR: Supabase rejected the provided credentials")
+            print("Verify that SUPABASE_ANON_KEY is correct")
+        supabase_client = None
     except Exception as e:
         print(f"Error during startup: {e}")
         # The app will still start, but with limited functionality
