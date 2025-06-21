@@ -59,87 +59,72 @@ class VectorStoreManager:
 
             # Try modern Pinecone API first
             try:
-                # Try importing the modern Pinecone client
-                import pinecone
-                has_modern_api = hasattr(pinecone, "Pinecone")
-                
-                if has_modern_api:
-                    # Modern API approach
-                    pc = pinecone.Pinecone(api_key=self.pinecone_api_key)
+                try:
+                    # Try importing the modern Pinecone client
+                    import pinecone
+                    has_modern_api = hasattr(pinecone, "Pinecone")
                     
-                    # Check if index exists
-                    try:
+                    if has_modern_api:
+                        # Modern API approach
+                        pc = pinecone.Pinecone(api_key=self.pinecone_api_key)
+                        # Check if index exists
                         if self.pinecone_index_name not in pc.list_indexes().names():
                             print(f"WARNING: Pinecone index '{self.pinecone_index_name}' not found.")
                             raise ValueError(f"Index '{self.pinecone_index_name}' not found")
-                    except Exception as list_err:
-                        print(f"Warning: Could not list indexes: {list_err}. Continuing anyway.")
-                    
-                    # Get the index
-                    pinecone_index = pc.Index(self.pinecone_index_name)
-                    
-                    # Create vector store
-                    self.vector_store = PineconeVectorStore(pinecone_index)
-                    print(f"✅ Connected to Pinecone index '{self.pinecone_index_name}' using modern API")
-                    print(f"DEBUG: Vector store type: {type(self.vector_store).__name__}")
-                    print(f"DEBUG: Pinecone index object type: {type(pinecone_index).__name__}")
-                    
-                    # Verify vector store has the pinecone_index property
-                    if hasattr(self.vector_store, '_pinecone_index'):
-                        print(f"DEBUG: _pinecone_index is properly set in vector store")
-                        try:
-                            # Test stats retrieval to ensure connectivity
-                            stats = pinecone_index.describe_index_stats()
-                            print(f"DEBUG: Successfully retrieved Pinecone stats: {stats}")
-                        except Exception as stats_err:
-                            print(f"WARNING: Could not retrieve Pinecone stats: {stats_err}")
-                else:
-                    # Legacy API approach 
-                    pinecone.init(api_key=self.pinecone_api_key, environment=self.pinecone_environment)
-                    
-                    # Check if index exists
-                    try:
+                        
+                        # Get the index
+                        pinecone_index = pc.Index(self.pinecone_index_name)
+                          # Create vector store
+                        self.vector_store = PineconeVectorStore(pinecone_index)
+                        print(f"✅ Connected to Pinecone index '{self.pinecone_index_name}' using modern API")
+                        print(f"DEBUG: Vector store type: {type(self.vector_store).__name__}")
+                        print(f"DEBUG: Pinecone index object type: {type(pinecone_index).__name__}")
+                        
+                        # Verify vector store has the pinecone_index property
+                        if hasattr(self.vector_store, '_pinecone_index'):
+                            print(f"DEBUG: _pinecone_index is properly set in vector store")
+                            try:
+                                # Test stats retrieval to ensure connectivity
+                                stats = pinecone_index.describe_index_stats()
+                                print(f"DEBUG: Successfully retrieved Pinecone stats: {stats}")
+                            except Exception as stats_err:
+                                print(f"WARNING: Could not retrieve Pinecone stats: {stats_err}")
+                    else:
+                        # Legacy API approach 
+                        pinecone.init(api_key=self.pinecone_api_key, environment=self.pinecone_environment)
+                        
+                        # Check if index exists
                         if self.pinecone_index_name not in pinecone.list_indexes():
                             print(f"WARNING: Pinecone index '{self.pinecone_index_name}' not found.")
                             raise ValueError(f"Index '{self.pinecone_index_name}' not found")
-                    except Exception as list_err:
-                        print(f"Warning: Could not list indexes: {list_err}. Continuing anyway.")
-                    
-                    # Get the index
-                    pinecone_index = pinecone.Index(self.pinecone_index_name)
-                    
-                    # Create vector store
-                    self.vector_store = PineconeVectorStore(pinecone_index)
-                    print(f"✅ Connected to Pinecone index '{self.pinecone_index_name}' using legacy API")
-                    print(f"DEBUG: Vector store type: {type(self.vector_store).__name__}")
-                    print(f"DEBUG: Pinecone index object type: {type(pinecone_index).__name__}")
-                    
-                    # Verify vector store has the pinecone_index property
-                    if hasattr(self.vector_store, '_pinecone_index'):
-                        print(f"DEBUG: _pinecone_index is properly set in vector store")
-                        try:
-                            # Test stats retrieval to ensure connectivity
-                            stats = pinecone_index.describe_index_stats()
-                            print(f"DEBUG: Successfully retrieved Pinecone stats: {stats}")
-                        except Exception as stats_err:
-                            print(f"WARNING: Could not retrieve Pinecone stats: {stats_err}")
-            except ImportError as e:
-                print(f"Error importing Pinecone: {e}. Make sure pinecone-client is installed.")
-                raise
-            except Exception as e:
+                        
+                        # Get the index
+                        pinecone_index = pinecone.Index(self.pinecone_index_name)
+                          # Create vector store
+                        self.vector_store = PineconeVectorStore(pinecone_index)
+                        print(f"✅ Connected to Pinecone index '{self.pinecone_index_name}' using legacy API")
+                        print(f"DEBUG: Vector store type: {type(self.vector_store).__name__}")
+                        print(f"DEBUG: Pinecone index object type: {type(pinecone_index).__name__}")
+                        
+                        # Verify vector store has the pinecone_index property
+                        if hasattr(self.vector_store, '_pinecone_index'):
+                            print(f"DEBUG: _pinecone_index is properly set in vector store")
+                            try:
+                                # Test stats retrieval to ensure connectivity
+                                stats = pinecone_index.describe_index_stats()
+                                print(f"DEBUG: Successfully retrieved Pinecone stats: {stats}")
+                            except Exception as stats_err:
+                                print(f"WARNING: Could not retrieve Pinecone stats: {stats_err}")
+                except ImportError as e:
+                    print(f"Error importing Pinecone: {e}. Make sure pinecone-client is installed.")
+                    raise
+                
+                return self.vector_store            except Exception as e:
                 print(f"Error initializing Pinecone: {e}")
                 print(f"DEBUG: Exception type: {type(e).__name__}")
                 import traceback
                 print(f"DEBUG: Traceback: {traceback.format_exc()}")
                 raise
-                
-            # If we got here, we have successfully initialized the vector store
-            if not self.vector_store:
-                raise ValueError("Vector store initialization failed but no exception was raised")
-                
-            # One final check before returning
-            print(f"DEBUG: Final vector store type: {type(self.vector_store).__name__}")
-            return self.vector_store
                 
         except Exception as e:
             print(f"❌ Failed to initialize Pinecone vector store: {e}")
@@ -187,8 +172,6 @@ class VectorStoreManager:
                 print("Initialized index with a placeholder document")
                 
             print("✅ Successfully initialized VectorStoreIndex")
-            print(f"DEBUG: Vector index type: {type(self.index).__name__}")
-            print(f"DEBUG: Vector index using vector store type: {type(self.index.vector_store).__name__}")
             return self.index
             
         except Exception as e:
@@ -248,7 +231,7 @@ class VectorStoreManager:
                 self.initialize_pinecone_vector_store()
                 
             # Check if we can access the pinecone_index directly
-            if hasattr(self.vector_store, '_pinecone_index'):
+            if hasattr(self.vector_store, "_pinecone_index"):
                 pinecone_index = self.vector_store._pinecone_index
                 pinecone_index.delete(filter=metadata_filter)
                 print(f"✅ Deleted vectors with metadata filter {metadata_filter}")
@@ -259,62 +242,3 @@ class VectorStoreManager:
         except Exception as e:
             print(f"Error deleting by metadata: {e}")
             return False
-
-    def get_index_stats(self) -> dict:
-        """Get statistics about the current index."""
-        if not self.vector_store:
-            return {"error": "Vector store not initialized"}
-        
-        try:
-            # Access the underlying Pinecone index
-            if hasattr(self.vector_store, '_pinecone_index'):
-                pinecone_index = self.vector_store._pinecone_index
-                stats = pinecone_index.describe_index_stats()
-                return {
-                    "success": True,
-                    "stats": stats,
-                    "index_name": self.pinecone_index_name
-                }
-            else:
-                return {
-                    "error": "Vector store does not have _pinecone_index attribute",
-                    "vector_store_type": type(self.vector_store).__name__
-                }
-        except Exception as e:
-            return {"error": f"Failed to get index stats: {str(e)}"}
-
-    def initialize_all(self) -> tuple[VectorStoreIndex, PineconeVectorStore, OpenAIEmbedding]:
-        """Initialize all components in the correct order."""
-        print("🚀 Initializing vector store components...")
-        
-        # Initialize embeddings first
-        embed_model = self.initialize_embeddings()
-        
-        # Initialize vector store
-        vector_store = self.initialize_pinecone_vector_store()
-        
-        # Initialize vector index
-        index = self.initialize_vector_index()
-        
-        print("✅ All vector store components initialized successfully!")
-        
-        return index, vector_store, embed_model
-
-# Global instance
-vector_store_manager = VectorStoreManager()
-
-
-def get_vector_store_manager() -> VectorStoreManager:
-    """Get the global vector store manager instance."""
-    return vector_store_manager
-
-
-def initialize_vector_store() -> tuple[VectorStoreIndex, PineconeVectorStore, OpenAIEmbedding]:
-    """Convenience function to initialize the vector store."""
-    return vector_store_manager.initialize_all()
-
-
-def create_index():
-    """Alternative convenience function to initialize the vector store and return the index."""
-    vector_store_manager.initialize_all()
-    return vector_store_manager.index
