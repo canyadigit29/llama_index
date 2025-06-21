@@ -18,7 +18,9 @@ class VectorStoreManager:
     def __init__(self):
         self.vector_store = None
         self.index = None
-        self.embed_model = None        # Environment variables
+        self.embed_model = None
+        
+        # Environment variables
         self.pinecone_api_key = os.environ.get("PINECONE_API_KEY")
         self.pinecone_environment = os.environ.get("PINECONE_ENVIRONMENT")
         self.pinecone_index_name = os.environ.get("PINECONE_INDEX_NAME", "developer-quickstart-py")

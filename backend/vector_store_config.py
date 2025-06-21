@@ -44,7 +44,7 @@ class VectorStoreManager:
         # Set global settings
         Settings.embed_model = self.embed_model
         print(f"✅ Initialized OpenAI embeddings: {self.embedding_model} ({self.embedding_dimensions}D)")
-          return self.embed_model
+        return self.embed_model
     
     def initialize_pinecone_vector_store(self) -> PineconeVectorStore:
         """Initialize Pinecone vector store using the proper from_params method."""
