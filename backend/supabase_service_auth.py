@@ -63,6 +63,38 @@ def download_file_with_service_role(bucket_name: str, file_path: str) -> Optiona
         print(f"✗ Failed to download with service role: {str(e)}")
         return None
 
+def insert_record_with_service_role(table_name: str, record_data: Dict) -> Optional[Dict]:
+    """
+    Insert a record into a Supabase table using service role authentication,
+    bypassing RLS policies.
+    
+    Args:
+        table_name: The name of the table (e.g., "llama_index_documents")
+        record_data: The data to insert as a dictionary
+        
+    Returns:
+        Optional[Dict]: The response data, or None on failure
+    """
+    service_client = get_service_authenticated_supabase()
+    if not service_client:
+        print("ERROR: Could not create service client for insert")
+        return None
+        
+    try:
+        print(f"Attempting to insert into '{table_name}' with service role...")
+        response = service_client.table(table_name).insert(record_data).execute()
+        print(f"✓ Successfully inserted record with service role into {table_name}")
+        return response.data
+    except Exception as e:
+        print(f"✗ Failed to insert with service role: {str(e)}")
+        if hasattr(e, 'json'):
+            try:
+                error_json = e.json()
+                print(f"Error details: {error_json}")
+            except:
+                pass
+        return None
+
 # Example usage in main.py:
 """
 from supabase_service_auth import download_file_with_service_role

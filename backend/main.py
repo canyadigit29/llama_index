@@ -1250,6 +1250,7 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
         
         # Create a document first
         doc = Document(text=file_text, metadata=metadata)
+        print(f"DEBUG: Created document with {len(file_text)} characters and metadata: {metadata}")
         
         # Create a text splitter/chunker
         splitter = SentenceSplitter(
@@ -1259,10 +1260,24 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
             secondary_chunking_regex="[^,.;。？！]+[,.;。？！]?",
             tokenizer=None  # Will use default tiktoken tokenizer
         )
+        print(f"DEBUG: Created SentenceSplitter with chunk_size={1024}, chunk_overlap={200}")
         
         # Split the document into chunks (nodes)
-        nodes = splitter.get_nodes_from_documents([doc])
-          # Insert the document into the index
+        print("DEBUG: Starting document chunking...")
+        try:
+            nodes = splitter.get_nodes_from_documents([doc])
+            print(f"DEBUG: Successfully created {len(nodes)} nodes/chunks from document")
+            if len(nodes) == 0:
+                print("WARNING: Document chunking produced 0 nodes! Check the document text and chunking parameters.")
+            else:
+                print(f"DEBUG: Sample chunk sizes: {[len(node.text) for node in nodes[:3]]}{'...' if len(nodes) > 3 else ''}")
+        except Exception as chunk_error:
+            print(f"ERROR: Document chunking failed: {str(chunk_error)}")
+            import traceback
+            print(f"TRACE: {traceback.format_exc()}")
+            raise
+        
+        # Insert the document into the index
         try:
             # Ensure each node has the file ID in its metadata for later deletion
             for node in nodes:
@@ -1270,11 +1285,105 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     node.metadata = {}
                 node.metadata["supabase_file_id"] = file_id
             
-            # Insert the nodes into the index
-            print(f"Inserting {len(nodes)} nodes into Pinecone index...")
+            # Check if we have the embed_model available
+            print(f"DEBUG: Checking for embed_model...")
+            if hasattr(Settings, 'embed_model') and Settings.embed_model:
+                print(f"DEBUG: embed_model is available in Settings: {type(Settings.embed_model).__name__}")
+            else:
+                print(f"WARNING: embed_model is NOT available in Settings. Embeddings may not be generated!")
+                # Try to get from vector_store_manager
+                from vector_store_config import vector_store_manager
+                if hasattr(vector_store_manager, 'embed_model') and vector_store_manager.embed_model:
+                    print(f"DEBUG: Using embed_model from vector_store_manager")
+                    Settings.embed_model = vector_store_manager.embed_model
+                else:
+                    print(f"ERROR: No embed_model available in vector_store_manager either!")
+                
+            # Generate embeddings explicitly for the first node to verify embedding functionality
+            print(f"DEBUG: Testing embedding generation for the first node...")
             try:
-                index.insert_nodes(nodes)
-                print(f"✓ Successfully indexed {len(nodes)} chunks from file {file_name}")
+                if Settings.embed_model and nodes:
+                    first_node = nodes[0]
+                    test_embedding = Settings.embed_model.get_text_embedding(first_node.text)
+                    print(f"DEBUG: Successfully generated test embedding with {len(test_embedding)} dimensions")
+                else:
+                    print("WARNING: Cannot test embedding generation - no embed_model or nodes available")
+            except Exception as embed_error:
+                print(f"ERROR: Test embedding generation failed: {str(embed_error)}")
+                import traceback
+                print(f"TRACE: {traceback.format_exc()}")
+
+            # Insert the nodes into the index
+            try:
+                # Verify that nodes have embeddings before insertion
+                has_embeddings = all(hasattr(node, 'embedding') and node.embedding is not None for node in nodes)
+                print(f"Nodes have embeddings: {has_embeddings}")
+                
+                if not has_embeddings:
+                    print("WARNING: Some nodes are missing embeddings!")
+                    # Count missing embeddings
+                    missing_count = sum(1 for node in nodes if not hasattr(node, 'embedding') or node.embedding is None)
+                    print(f"Number of nodes missing embeddings: {missing_count}/{len(nodes)}")
+                
+                # Log the first node details (without the full embedding)
+                if nodes:
+                    first_node = nodes[0]
+                    print(f"First node details:")
+                    print(f"  Node ID: {first_node.id_}")
+                    print(f"  Text length: {len(first_node.text) if hasattr(first_node, 'text') else 'N/A'}")
+                    print(f"  Has embedding: {hasattr(first_node, 'embedding') and first_node.embedding is not None}")
+                    if hasattr(first_node, 'embedding') and first_node.embedding is not None:
+                        print(f"  Embedding dimensions: {len(first_node.embedding)}")
+                
+                # Log the vector store information
+                from vector_store_config import vector_store_manager
+                vs_info = vector_store_manager.get_index_stats() if hasattr(vector_store_manager, 'get_index_stats') else {"info": "Vector store stats not available"}
+                print(f"Vector store status before insertion: {vs_info}")
+                
+                # Perform the insertion
+                print(f"DEBUG: Starting insertion of {len(nodes)} nodes into Pinecone index...")
+                try:
+                    # Check vector store status before insertion
+                    print(f"DEBUG: Vector store type: {type(index.vector_store).__name__}")
+                    
+                    # Try to verify Pinecone connection
+                    if hasattr(index.vector_store, '_pinecone_index'):
+                        try:
+                            pinecone_index = index.vector_store._pinecone_index
+                            stats_before = pinecone_index.describe_index_stats()
+                            print(f"DEBUG: Pinecone index stats before insertion: {stats_before}")
+                        except Exception as stats_error:
+                            print(f"DEBUG: Could not get Pinecone stats: {str(stats_error)}")
+                    
+                    # Insert nodes
+                    print(f"DEBUG: Calling index.insert_nodes with {len(nodes)} nodes...")
+                    index.insert_nodes(nodes)
+                    print(f"DEBUG: ✓ index.insert_nodes completed without errors")
+                    
+                    # Verify insertion by checking stats again
+                    if hasattr(index.vector_store, '_pinecone_index'):
+                        try:
+                            pinecone_index = index.vector_store._pinecone_index
+                            stats_after = pinecone_index.describe_index_stats()
+                            print(f"DEBUG: Pinecone index stats after insertion: {stats_after}")
+                            
+                            # Check if vector count increased
+                            before_count = stats_before.get('namespaces', {}).get('', {}).get('vector_count', 0)
+                            after_count = stats_after.get('namespaces', {}).get('', {}).get('vector_count', 0)
+                            diff = after_count - before_count
+                            
+                            print(f"DEBUG: Vector count change: {before_count} → {after_count} (Δ {diff})")
+                            if diff != len(nodes):
+                                print(f"WARNING: Expected to add {len(nodes)} vectors but count changed by {diff}")
+                        except Exception as stats_error:
+                            print(f"DEBUG: Could not get post-insertion Pinecone stats: {str(stats_error)}")
+                    
+                    print(f"✓ Successfully indexed {len(nodes)} chunks from file {file_name}")
+                except Exception as insert_error:
+                    print(f"ERROR: Failed to insert nodes into Pinecone: {str(insert_error)}")
+                    import traceback
+                    print(f"TRACE: {traceback.format_exc()}")
+                    raise
             except Exception as pinecone_error:
                 print(f"ERROR: Failed to insert nodes into Pinecone: {str(pinecone_error)}")
                 # Check for common Pinecone errors
@@ -1327,29 +1436,27 @@ async def process_file(request: Request, token: str = Depends(verify_token)):
                     print("Note: vector_store field could not be added")
                 
                 print(f"Inserting document record with fields: {', '.join(record_data.keys())}")
+                  # Import the service client early to ensure it's available
+                from supabase_service_auth import get_service_authenticated_supabase
                 
                 # Try with regular client first
                 try:
                     response = supabase_client.table("llama_index_documents").insert(record_data).execute()
                     print("✓ Successfully recorded document in Supabase")
                 except Exception as reg_client_error:
-                    print(f"Regular client record insert failed: {str(reg_client_error)}")
-                    
-                    # Try with service role client if regular client fails
+                    print(f"Regular client record insert failed: {reg_client_error}")                    # Try with service role client (fallback)
                     print("Trying with service role client...")
-                    from supabase_service_auth import get_service_authenticated_supabase
-                    service_client = get_service_authenticated_supabase()
+                    from supabase_service_auth import insert_record_with_service_role
                     
-                    if service_client:
-                        try:
-                            response = service_client.table("llama_index_documents").insert(record_data).execute()
-                            print("✓ Successfully recorded document in Supabase using service role client")
-                        except Exception as service_error:
-                            print(f"Service role client record insert also failed: {str(service_error)}")
-                            raise service_error
+                    # Use the helper function to insert with service role
+                    result = insert_record_with_service_role("llama_index_documents", record_data)
+                    if result:
+                        print("✓ Successfully recorded document in Supabase using service role client")
                     else:
-                        print("Could not create service role client")
-                        raise reg_client_error
+                        print("Service role client record insert also failed")
+                        # Create a generic error to raise if the helper function didn't raise its own
+                        service_error = Exception("Service role insertion failed, see logs for details")
+                        raise service_error
             except Exception as supabase_error:
                 print(f"ERROR: Failed to record document in Supabase: {str(supabase_error)}")
                 print("WARNING: Document was indexed in Pinecone but record in Supabase failed")
