@@ -28,7 +28,18 @@ cd /app && python test_imports.py || echo "⚠️ Some imports failed - see warn
 
 # Run Pinecone configuration validation
 echo "Validating Pinecone configuration for Railway..."
-cd /app/backend && python railway_pinecone_setup.py || echo "Pinecone validation completed with warnings"
+if [ -f "/app/backend/railway_pinecone_test.py" ]; then
+  python /app/backend/railway_pinecone_test.py
+  PINECONE_TEST_RESULT=$?
+  if [ $PINECONE_TEST_RESULT -ne 0 ]; then
+    echo "⚠️ Pinecone test failed with exit code $PINECONE_TEST_RESULT - check logs for details"
+  else
+    echo "✅ Pinecone connection test passed"
+  fi
+else
+  echo "Pinecone test script not found, falling back to legacy setup..."
+  cd /app/backend && python railway_pinecone_setup.py || echo "Pinecone validation completed with warnings"
+fi
 
 # Print diagnostic information
 echo "Current environment:"
